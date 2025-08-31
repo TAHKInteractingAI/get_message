@@ -1,0 +1,6 @@
+gspread
+oauth2client
+selenium
+webdriver-manager
+pytz
+gspread-formatting
