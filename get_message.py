@@ -248,7 +248,7 @@ def get_message_all_group(driver):
                 title_text = title_element.get_attribute("title")
                 print(f"\n--- Bắt đầu xử lý nhóm: {title_text} ---")
 
-                # create_worksheet(title_text) # Tạm thời comment out để tập trung vào lấy tin
+                create_worksheet(title_text) # Tạm thời comment out để tập trung vào lấy tin
                 
                 # Click vào nhóm chat
                 actions = ActionChains(driver)
