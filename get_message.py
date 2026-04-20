@@ -49,37 +49,67 @@ def login():
     import tempfile
 
     options = webdriver.ChromeOptions()
-    options.add_argument("--headless")
+    options.add_argument("--headless=new")  # Sử dụng mode headless mới ổn định hơn
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+
     temp_dir = tempfile.mkdtemp()
     options.add_argument(f"--user-data-dir={temp_dir}")
 
     driver = webdriver.Chrome(
         service=Service(ChromeDriverManager().install()), options=options
     )
+
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+            "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+        """
+        },
+    )
+
+    # Kiểm tra xem có iframe nào không và switch thử (nếu cần)
+    iframes = driver.find_elements(By.TAG_NAME, "iframe")
+    for index, iframe in enumerate(iframes):
+        print(f"Thử kiểm tra iframe index: {index}")
+        driver.switch_to.frame(index)
+        try:
+            btn = driver.find_element(By.PARTIAL_LINK_TEXT, "Sign in")
+            btn.click()
+            break
+        except:
+            driver.switch_to.default_content()
+
     driver.get("https://teams.live.com/v2/")
-    time.sleep(8)
+    time.sleep(10)
+    save_screenshot(driver, "check_initial_page.png")
 
     try:
         sign_in_btn = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable(
+            EC.presence_of_element_located(
                 (
                     By.XPATH,
-                    '//a[contains(text(), "Sign in")] | //button[contains(., "Sign in")] | //div[contains(text(), "Sign in")]',
+                    "//*[contains(translate(text(), 'SIGNIN', 'signin'), 'sign in')]",
                 )
             )
         )
-        driver.execute_script(
-            "arguments[0].click();", sign_in_btn
-        )  # Dùng JS click cho chắc chắn
-        print("Đã nhấn nút Sign In")
+        driver.execute_script("arguments[0].scrollIntoView(true);", sign_in_btn)
+        time.sleep(1)
+        driver.execute_script("arguments[0].click();", sign_in_btn)
+        print("✅ Đã nhấn nút Sign In bằng JS")
     except Exception as e:
-        print(f"Không nhấn được nút Sign In: {e}")
-        save_screenshot(driver, "failed_at_landing_page.png")
-    time.sleep(3)
+        print(f"❌ Không tìm thấy nút bằng Xpath, thử chuyển hướng trực tiếp...")
+        driver.get("https://teams.live.com/v2/?login_hint")
 
     email_input = WebDriverWait(driver, 20).until(
         EC.presence_of_element_located((By.ID, "usernameEntry"))
