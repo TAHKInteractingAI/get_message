@@ -29,3 +29,9 @@ jobs:
           TEAMS_EMAIL: ${{ secrets.TEAMS_EMAIL }}
           TEAMS_PASSWORD: ${{ secrets.TEAMS_PASSWORD }}
         run: python get_message.py
+      - name: Upload Screenshot on Failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ./*.png
