@@ -56,10 +56,15 @@ def login():
     driver.get("https://teams.live.com/v2/")
     time.sleep(8)
 
+    try:
     sign_in_btn = WebDriverWait(driver, 20).until(
-        EC.element_to_be_clickable((By.XPATH, '//button[@type="button" and contains(., "Sign in")]'))
+        EC.element_to_be_clickable((By.XPATH, '//a[contains(text(), "Sign in")] | //button[contains(., "Sign in")] | //div[contains(text(), "Sign in")]'))
     )
-    sign_in_btn.click()
+    driver.execute_script("arguments[0].click();", sign_in_btn) # Dùng JS click cho chắc chắn
+    print("Đã nhấn nút Sign In")
+except Exception as e:
+    print(f"Không nhấn được nút Sign In: {e}")
+    save_screenshot(driver, "failed_at_landing_page.png")
     time.sleep(3)
 
     email_input = WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.ID, "usernameEntry")))
