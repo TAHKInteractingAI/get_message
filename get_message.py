@@ -103,10 +103,13 @@ def login():
                 )
             )
         )
-        driver.execute_script("arguments[0].scrollIntoView(true);", sign_in_btn)
-        time.sleep(1)
         driver.execute_script("arguments[0].click();", sign_in_btn)
         print("✅ Đã nhấn nút Sign In bằng JS")
+
+        time.sleep(5)  # Đợi tab mới mở ra
+        if len(driver.window_handles) > 1:
+            driver.switch_to.window(driver.window_handles[-1])
+            print("🔄 Đã chuyển sang cửa sổ đăng nhập mới")
     except Exception as e:
         print(f"❌ Không tìm thấy nút bằng Xpath, thử chuyển hướng trực tiếp...")
         driver.get("https://teams.live.com/v2/?login_hint")
@@ -145,16 +148,15 @@ def login():
     # print("Đã chụp màn hình sau khi nhập email.")
 
     try:
-        no_button = WebDriverWait(driver, 15).until(
+        # Tìm bất kỳ nút nào có thuộc tính primary hoặc secondary để bấm qua màn hình "Stay signed in"
+        stay_signed_in_btn = WebDriverWait(driver, 15).until(
             EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, 'button[data-testid="secondaryButton"]')
+                (By.XPATH, "//input[@type='submit' or @type='button']")
             )
         )
-        no_button.click()
-        time.sleep(5)
-    except Exception as e:
-        print("Không tìm thấy nút 'No'.")
-
+        stay_signed_in_btn.click()
+    except:
+        print("Không thấy màn hình Stay signed in.")
     time.sleep(20)
 
     try:
@@ -333,9 +335,11 @@ def get_message_all_group(driver):
         print("Đang chờ danh sách chat tải...")
         # Chờ cho ít nhất một mục chat xuất hiện
         wait.until(
-            EC.presence_of_element_located((By.XPATH, "//*[starts-with(@id, '19:')]"))
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, '[data-tid="chat-list-item"]')
+            )
         )
-        elements = driver.find_elements(By.XPATH, "//*[starts-with(@id, '19:')]")
+        elements = driver.find_elements(By.CSS_SELECTOR, '[data-tid="chat-list-item"]')
         print(f"Tìm thấy {len(elements)} nhóm chat.")
 
         for i, element in enumerate(elements):
