@@ -1,387 +1,382 @@
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
-import gc
+# =========================
+# APPLY LOGIN + DRIVER + ELEMENT INTERACTION FROM SOURCE 1
+# INTO SOURCE 2
+# =========================
 
-gc.disable()
-from selenium.webdriver.chrome.service import Service
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.action_chains import ActionChains
-from webdriver_manager.chrome import ChromeDriverManager
+import os
+import gc
+import json
 import time
 import pytz
-from datetime import datetime, timezone
-from gspread_formatting import *
-import os
-import json
+import gspread
+import tempfile
+import undetected_chromedriver as uc
 
+from datetime import datetime, timezone
+from oauth2client.service_account import ServiceAccountCredentials
+
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+from gspread_formatting import *
+
+gc.disable()
+
+# =========================
+# CONFIG
+# =========================
 local_tz = pytz.timezone("Asia/Ho_Chi_Minh")
+
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1_m7s-1-I-SOFfzlWe7CBf5fstFir7qXYAKW4j-8hKYM/edit?usp=sharing"
+
 email = os.environ.get("TEAMS_EMAIL")
 password = os.environ.get("TEAMS_PASSWORD")
 gcp_credentials_json = os.environ.get("GCP_SA_KEY")
 
 
+# =========================
+# GOOGLE SHEETS
+# =========================
 def get_gsclient():
-    """Khởi tạo client Google Sheets sử dụng Service Account"""
     creds_dict = json.loads(gcp_credentials_json)
-    SCOPES = [
+
+    scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, SCOPES)
+
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scopes)
     return gspread.authorize(creds)
 
 
-def save_screenshot(driver: webdriver.Chrome, file_name: str = "screenshot.png"):
-    """Chụp màn hình và lưu lại file"""
+# =========================
+# SCREENSHOT
+# =========================
+def save_screenshot(driver, file_name="error.png"):
     try:
         driver.save_screenshot(file_name)
-        print(f"📸 Đã chụp màn hình và lưu tại: {file_name}")
-    except Exception as e:
-        print(f"❌ Không thể chụp màn hình: {e}")
+        print(f"📸 Saved: {file_name}")
+    except:
+        pass
 
 
-def login():
-    import tempfile
+# =========================
+# NEW DRIVER FROM SOURCE 1
+# =========================
+def get_driver():
+    options = uc.ChromeOptions()
 
-    options = webdriver.ChromeOptions()
-    options.add_argument("--headless=new")  # Sử dụng mode headless mới ổn định hơn
+    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument(
-        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    )
 
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
+    options.page_load_strategy = "eager"
+    options.add_argument("--lang=en-GB")
 
-    temp_dir = tempfile.mkdtemp()
-    options.add_argument(f"--user-data-dir={temp_dir}")
+    proxy_url = os.getenv("PROXY_URL")
+    if proxy_url:
+        options.add_argument(f"--proxy-server={proxy_url}")
 
-    driver = webdriver.Chrome(
-        service=Service(ChromeDriverManager().install()), options=options
-    )
+    driver = uc.Chrome(options=options, version_main=146)
 
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
         {
             "source": """
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
-            })
-        """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+
+                window.navigator.chrome = { runtime: {} };
+
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1,2,3,4,5]
+                });
+
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-GB','en-US','en']
+                });
+            """
         },
     )
-
-    # Kiểm tra xem có iframe nào không và switch thử (nếu cần)
-    iframes = driver.find_elements(By.TAG_NAME, "iframe")
-    for index, iframe in enumerate(iframes):
-        print(f"Thử kiểm tra iframe index: {index}")
-        driver.switch_to.frame(index)
-        try:
-            btn = driver.find_element(By.PARTIAL_LINK_TEXT, "Sign in")
-            btn.click()
-            break
-        except:
-            driver.switch_to.default_content()
-
-    driver.get("https://teams.live.com/v2/")
-    time.sleep(10)
-    save_screenshot(driver, "check_initial_page.png")
-
-    try:
-        sign_in_btn = WebDriverWait(driver, 20).until(
-            EC.presence_of_element_located(
-                (
-                    By.XPATH,
-                    "//*[contains(translate(text(), 'SIGNIN', 'signin'), 'sign in')]",
-                )
-            )
-        )
-        driver.execute_script("arguments[0].click();", sign_in_btn)
-        print("✅ Đã nhấn nút Sign In bằng JS")
-
-        time.sleep(5)  # Đợi tab mới mở ra
-        if len(driver.window_handles) > 1:
-            driver.switch_to.window(driver.window_handles[-1])
-            print("🔄 Đã chuyển sang cửa sổ đăng nhập mới")
-    except Exception as e:
-        print(f"❌ Không tìm thấy nút bằng Xpath, thử chuyển hướng trực tiếp...")
-        driver.get("https://teams.live.com/v2/?login_hint")
-
-    email_input = WebDriverWait(driver, 20).until(
-        EC.presence_of_element_located((By.ID, "usernameEntry"))
-    )
-    email_input.send_keys(email)
-    email_input.send_keys(Keys.RETURN)
-    time.sleep(8)
-
-    # Chọn 'Use your password' nếu xuất hiện
-    try:
-        use_pass_btn = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable(
-                (
-                    By.XPATH,
-                    '//span[@role="button" and contains(text(), "Use your password")]',
-                )
-            )
-        )
-        use_pass_btn.click()
-        time.sleep(3)
-    except Exception as e:
-        print("Không tìm thấy nút 'Use your password'.")
-
-    # Tiếp tục nhập mật khẩu như cũ
-    password_input = WebDriverWait(driver, 30).until(
-        EC.presence_of_element_located((By.ID, "passwordEntry"))
-    )
-    password_input.send_keys(password)
-    password_input.send_keys(Keys.RETURN)
-    time.sleep(8)
-
-    # driver.save_screenshot("after_email.png")
-    # print("Đã chụp màn hình sau khi nhập email.")
-
-    try:
-        # Tìm bất kỳ nút nào có thuộc tính primary hoặc secondary để bấm qua màn hình "Stay signed in"
-        stay_signed_in_btn = WebDriverWait(driver, 15).until(
-            EC.element_to_be_clickable(
-                (By.XPATH, "//input[@type='submit' or @type='button']")
-            )
-        )
-        stay_signed_in_btn.click()
-    except:
-        print("Không thấy màn hình Stay signed in.")
-    time.sleep(20)
-
-    try:
-        button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable(
-                (By.CSS_SELECTOR, 'button[data-testid="primaryButton"]')
-            )
-        )
-        button.click()
-        time.sleep(10)
-    except:
-        pass
 
     return driver
 
 
-def get_last_saved_datetime(work_sheet):
-    existing_data = work_sheet.get_all_values()
-    if len(existing_data) <= 1:
-        return None
-    last_row = existing_data[-1]
-    last_date_str, last_time_str = last_row[1], last_row[2]
+# =========================
+# LOGIN FROM SOURCE 1
+# =========================
+def login():
+    driver = get_driver()
+
+    driver.get("https://teams.live.com/v2/")
+    wait = WebDriverWait(driver, 30)
+
     try:
-        return datetime.strptime(
-            f"{last_date_str} {last_time_str}", "%Y-%m-%d %H:%M:%S"
+        print("⏳ Logging in...")
+
+        sign_btn = wait.until(
+            EC.element_to_be_clickable(
+                (By.XPATH, '//button[contains(., "Sign in")]')
+            )
         )
-    except ValueError:
+        sign_btn.click()
+
+        email_box = wait.until(
+            EC.presence_of_element_located((By.ID, "usernameEntry"))
+        )
+        email_box.send_keys(email)
+        email_box.send_keys(Keys.RETURN)
+
+        time.sleep(3)
+
+        try:
+            use_pass = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, '//span[contains(text(),"Use your password")]')
+                )
+            )
+            use_pass.click()
+        except:
+            pass
+
+        pass_box = wait.until(
+            EC.presence_of_element_located((By.ID, "passwordEntry"))
+        )
+        pass_box.send_keys(password)
+        pass_box.send_keys(Keys.RETURN)
+
+        try:
+            no_btn = WebDriverWait(driver, 15).until(
+                EC.element_to_be_clickable(
+                    (By.CSS_SELECTOR, 'button[data-testid="secondaryButton"]')
+                )
+            )
+            no_btn.click()
+        except:
+            pass
+
+        print("✅ Login success")
+
+        time.sleep(12)
+
+        return driver
+
+    except Exception as e:
+        save_screenshot(driver, "login_error.png")
+        print("❌ Login failed:", e)
+        driver.quit()
         return None
 
 
-def save_to_excel(new_data, worksheet_title):
+# =========================
+# CREATE SHEET
+# =========================
+def create_worksheet(title):
+    gcx = get_gsclient()
+    sheet = gcx.open_by_url(SPREADSHEET_URL)
+
+    names = [x.title for x in sheet.worksheets()]
+
+    if title in names:
+        return
+
+    ws = sheet.add_worksheet(title=title, rows=1000, cols=4)
+
+    ws.update("A1:D1", [["NAME", "DATE", "TIME", "CONTENT"]])
+
+    set_column_widths(
+        ws,
+        [
+            ("A", 180),
+            ("B", 100),
+            ("C", 100),
+            ("D", 1000),
+        ],
+    )
+
+    ws.freeze(rows=1)
+
+
+# =========================
+# SAVE DATA
+# =========================
+def save_to_excel(rows, worksheet):
+    gcx = get_gsclient()
+    sheet = gcx.open_by_url(SPREADSHEET_URL)
+    ws = sheet.worksheet(worksheet)
+
+    if rows:
+        ws.append_rows(rows, value_input_option="USER_ENTERED")
+        print(f"✅ Added {len(rows)} rows -> {worksheet}")
+
+
+# =========================
+# GET MESSAGE
+# =========================
+def get_messages(driver, worksheet):
     try:
-        gc = get_gsclient()
-        sheet = gc.open_by_url(SPREADSHEET_URL)
-        work_sheet = sheet.worksheet(worksheet_title)
+        wait = WebDriverWait(driver, 20)
 
-        last_saved_datetime = get_last_saved_datetime(work_sheet)
-        new_messages = []
-        for msg in new_data:
-            msg_datetime = datetime.strptime(
-                f"{msg['DATE']} {msg['TIME']}", "%Y-%m-%d %H:%M:%S"
-            )
-            if last_saved_datetime is None or msg_datetime > last_saved_datetime:
-                new_messages.append(
-                    [msg["NAME"], msg["DATE"], msg["TIME"], msg["CONTENT"]]
-                )
-
-        if new_messages:
-            work_sheet.append_rows(new_messages, value_input_option="USER_ENTERED")
-            print(
-                f"✅ Đã thêm {len(new_messages)} tin nhắn mới vào worksheet '{worksheet_title}'."
-            )
-        else:
-            print(f"ℹ️ Không có tin nhắn mới trong worksheet '{worksheet_title}'.")
-    except Exception as e:
-        print(f"❌ Lỗi khi cập nhật Google Sheet: {str(e)}")
-
-
-def get_messege(driver, worksheet):
-    try:
-        wait = WebDriverWait(driver, 15)
-        chat_list = wait.until(
+        pane = wait.until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, '[data-tid="message-pane-list-runway"]')
             )
         )
-        message_items = chat_list.find_elements(
-            By.CSS_SELECTOR, '[data-tid="chat-pane-item"]'
+
+        items = pane.find_elements(
+            By.CSS_SELECTOR,
+            '[data-tid="chat-pane-item"]'
         )
 
         data = []
-        for item in message_items:
+
+        for item in items:
             try:
                 name = item.find_element(
-                    By.CSS_SELECTOR, '[data-tid="message-author-name"]'
+                    By.CSS_SELECTOR,
+                    '[data-tid="message-author-name"]'
                 ).text
-                timestamp = item.find_element(By.TAG_NAME, "time").get_attribute(
-                    "datetime"
-                )
-                dt_utc = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
-                    tzinfo=timezone.utc
-                )
+
+                timestamp = item.find_element(
+                    By.TAG_NAME,
+                    "time"
+                ).get_attribute("datetime")
+
+                dt_utc = datetime.strptime(
+                    timestamp,
+                    "%Y-%m-%dT%H:%M:%S.%fZ"
+                ).replace(tzinfo=timezone.utc)
+
                 dt_local = dt_utc.astimezone(local_tz)
+
                 date_str = dt_local.strftime("%Y-%m-%d")
                 time_str = dt_local.strftime("%H:%M:%S")
+
                 content = item.find_element(
-                    By.CSS_SELECTOR, '[id^="content-"][aria-label]'
-                ).get_attribute("aria-label")
-                content = content.replace("\xa0", " ").strip()
+                    By.CSS_SELECTOR,
+                    '[id^="content-"][aria-label]'
+                ).get_attribute("aria-label").strip()
 
                 data.append(
-                    {
-                        "DATE": date_str,
-                        "TIME": time_str,
-                        "NAME": name,
-                        "CONTENT": content,
-                    }
+                    [name, date_str, time_str, content]
                 )
-            except Exception:
-                continue  # Bỏ qua nếu có lỗi với một tin nhắn cụ thể
 
-        if data:
-            save_to_excel(data, worksheet)
-        else:
-            print("Không tìm thấy tin nhắn nào.")
+            except:
+                continue
+
+        save_to_excel(data, worksheet)
 
     except Exception as e:
-        print(f"Lỗi khi lấy tin nhắn: {e}")
+        print("❌ get_messages error:", e)
 
 
-def create_worksheet(title):
-    gc = get_gsclient()
+# =========================
+# SEARCH CHAT FROM SOURCE 1
+# =========================
+def open_chat_by_search(driver, chat_name):
+    wait = WebDriverWait(driver, 20)
 
-    # Mở Google Sheet bằng URL
-    spreadsheet_url = "https://docs.google.com/spreadsheets/d/1_m7s-1-I-SOFfzlWe7CBf5fstFir7qXYAKW4j-8hKYM/edit?usp=sharing"
-    sheet = gc.open_by_url(spreadsheet_url)
-    sheet_names = [s.title for s in sheet.worksheets()]
-
-    if title in sheet_names:
-        print(f"Worksheet '{title}' đã tồn tại, không cần tạo thêm.")
-    else:
-        # Tạo worksheet mới KHÔNG giới hạn hàng/cột
-        new_worksheet = sheet.add_worksheet(
-            title=title, rows=1000, cols=4
-        )  # Bỏ rows và cols
-
-        # Định nghĩa header
-        headers = ["NAME", "DATE", "TIME", "CONTENT"]
-
-        # Ghi header vào dòng đầu tiên
-        new_worksheet.update(range_name="A1:D1", values=[headers])
-
-        # Định dạng header
-        header_format = CellFormat(
-            backgroundColor=Color(70, 189, 198),
-            textFormat=TextFormat(bold=True),
-            horizontalAlignment="CENTER",
-            verticalAlignment="MIDDLE",
-            borders=Borders(
-                top=Border("SOLID"),
-                bottom=Border("SOLID"),
-                left=Border("SOLID"),
-                right=Border("SOLID"),
-            ),
-            wrapStrategy="WRAP",
-        )
-
-        # Định dạng chung cho TOÀN BỘ WORKSHEET (không giới hạn)
-        body_format = CellFormat(
-            horizontalAlignment="CENTER",
-            verticalAlignment="MIDDLE",
-            wrapStrategy="WRAP",
-        )
-
-        # Áp dụng định dạng header
-        format_cell_range(new_worksheet, "A1:D1", header_format)
-
-        # Áp dụng định dạng cho TOÀN BỘ DỮ LIỆU TƯƠNG LAI (phạm vi động)
-        format_cell_range(
-            new_worksheet, "A2:D", body_format
-        )  # Z là cột xa nhất cần định dạng
-
-        # Đặt độ rộng cột (tùy chọn)
-        set_column_widths(
-            new_worksheet, [("A", 186), ("B", 100), ("C", 100), ("D", 1020)]
-        )
-        # Ghim hàng header
-        new_worksheet.freeze(rows=1)
-
-        print(f"Đã tạo worksheet '{title}'!")
-
-
-def get_message_all_group(driver):
     try:
-        wait = WebDriverWait(driver, 20)
-        print("Đang chờ danh sách chat tải...")
-        # Chờ cho ít nhất một mục chat xuất hiện
+        search_xpath = (
+            '//input[@placeholder="Search"]'
+            ' | //input[@aria-label="Search"]'
+            ' | //input[@id="ms-searchux-input"]'
+        )
+
+        search = wait.until(
+            EC.presence_of_element_located(
+                (By.XPATH, search_xpath)
+            )
+        )
+
+        search.click()
+        search.send_keys(Keys.CONTROL + "a")
+        search.send_keys(Keys.BACKSPACE)
+        search.send_keys(chat_name)
+
+        time.sleep(3)
+
+        ActionChains(driver)\
+            .send_keys(Keys.ARROW_DOWN)\
+            .pause(1)\
+            .send_keys(Keys.ENTER)\
+            .perform()
+
+        time.sleep(5)
+
+        print(f"📂 Opened: {chat_name}")
+        return True
+
+    except Exception as e:
+        print("❌ Cannot open:", chat_name, e)
+        return False
+
+
+# =========================
+# GET ALL GROUPS
+# =========================
+def get_all_groups(driver):
+    wait = WebDriverWait(driver, 20)
+
+    try:
         wait.until(
             EC.presence_of_element_located(
                 (By.CSS_SELECTOR, '[data-tid="chat-list-item"]')
             )
         )
-        elements = driver.find_elements(By.CSS_SELECTOR, '[data-tid="chat-list-item"]')
-        print(f"Tìm thấy {len(elements)} nhóm chat.")
 
-        for i, element in enumerate(elements):
+        groups = driver.find_elements(
+            By.CSS_SELECTOR,
+            '[data-tid="chat-list-item"]'
+        )
+
+        names = []
+
+        for g in groups:
             try:
-                # Lấy lại element để tránh StaleElementReferenceException
-                current_element = driver.find_elements(
-                    By.XPATH, "//*[starts-with(@id, '19:')]"
-                )[i]
-                element_id = current_element.get_attribute("id")
+                txt = g.text.strip().split("\n")[0]
+                if txt and txt not in names:
+                    names.append(txt)
+            except:
+                pass
 
-                # Lấy tên nhóm từ title
-                title_id = "title-chat-list-item_" + element_id
-                title_element = wait.until(
-                    EC.presence_of_element_located((By.ID, title_id))
-                )
-                title_text = title_element.get_attribute("title")
-                print(f"\n--- Bắt đầu xử lý nhóm: {title_text} ---")
-
-                create_worksheet(
-                    title_text
-                )  # Tạm thời comment out để tập trung vào lấy tin
-
-                # Click vào nhóm chat
-                actions = ActionChains(driver)
-                actions.move_to_element(title_element).click().perform()
-                print(f"Đã click vào nhóm '{title_text}'.")
-                time.sleep(3)  # Chờ một chút để tin nhắn tải
-
-                get_messege(driver, title_text)
-
-            except Exception as e:
-                print(f"Lỗi khi xử lý một nhóm chat: {e}")
-                continue  # Bỏ qua và tiếp tục với nhóm tiếp theo
+        print(f"Found {len(names)} groups")
+        return names
 
     except Exception as e:
-        print(f"Lỗi khi lấy danh sách nhóm chat: {e}")
-        save_screenshot(driver, "error_get_groups.png")
+        print("❌ get_all_groups:", e)
+        return []
 
 
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
     driver = login()
+
     if driver:
-        get_message_all_group(driver)
+
+        group_names = get_all_groups(driver)
+
+        for group in group_names:
+            try:
+                print(f"\n===== {group} =====")
+
+                create_worksheet(group)
+
+                if open_chat_by_search(driver, group):
+                    get_messages(driver, group)
+
+                time.sleep(3)
+
+            except Exception as e:
+                print("Skip:", group, e)
+
         driver.quit()
-        print("✅ Hoàn tất công việc!")
+        print("✅ DONE")
