@@ -350,6 +350,7 @@ def get_all_groups(driver):
         return names
 
     except Exception as e:
+        save_screenshot(driver, "error_groups.png")
         print("❌ get_all_groups:", e)
         return []
 
