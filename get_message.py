@@ -114,7 +114,7 @@ def get_driver():
 def login():
     driver = get_driver()
 
-    driver.get("https://teams.live.com/v2/")
+    driver.get("https://teams.microsoft.com/v2/")
     wait = WebDriverWait(driver, 30)
 
     try:
