@@ -213,7 +213,9 @@ def create_worksheet(title):
     )
 
     ws.freeze(rows=1)
-
+    # THÊM 2 DÒNG NÀY VÀO DƯỚI CÙNG:
+    fmt = cellFormat(wrapStrategy='WRAP')
+    format_cell_range(ws, 'D:D', fmt)
 
 # =========================
 # SAVE DATA
@@ -272,8 +274,8 @@ def get_messages(driver, worksheet):
 
                 content = item.find_element(
                     By.CSS_SELECTOR,
-                    '[id^="content-"][aria-label]'
-                ).get_attribute("aria-label").strip()
+                    '[id^="content-"]'
+                ).text.strip()
                 data.append(
                     [name, date_str, time_str, content]
                 )
