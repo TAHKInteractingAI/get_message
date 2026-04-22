@@ -140,7 +140,19 @@ def login():
         email_box.send_keys(Keys.RETURN)
 
         time.sleep(3)
-
+        # ====== THÊM ĐOẠN NÀY VÀO ======
+        # Xử lý trường hợp Microsoft đòi gửi mã code, ép nó quay về dùng Mật khẩu
+        try:
+            use_pass_btn = WebDriverWait(driver, 5).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, '//*[contains(text(), "Use your password") or contains(text(), "Sử dụng mật khẩu")]')
+                )
+            )
+            use_pass_btn.click()
+            time.sleep(2)
+        except:
+            pass # Nếu màn hình đi thẳng tới ô mật khẩu thì cứ bỏ qua bước này
+        # ===============================
         # 3. Ô nhập Password
         pass_box = wait.until(
             EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="password"], input[name="passwd"]'))
