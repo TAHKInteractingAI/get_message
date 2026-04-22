@@ -109,61 +109,65 @@ def get_driver():
 
 
 # =========================
+# =========================
 # LOGIN FROM SOURCE 1
 # =========================
 def login():
     driver = get_driver()
 
-    driver.get("https://teams.live.com/v2/")
+    # Truy cập link chuẩn cho Work/School
+    driver.get("https://teams.microsoft.com/")
     wait = WebDriverWait(driver, 30)
 
     try:
         print("⏳ Logging in...")
 
-        sign_btn = wait.until(
-            EC.element_to_be_clickable(
-                (By.XPATH, '//button[contains(., "Sign in")]')
+        # 1. Xử lý nút Sign in (nếu bị đẩy ra trang chờ)
+        try:
+            sign_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, '//button[contains(., "Sign in")] | //a[contains(., "Sign in")] | //button[contains(., "Đăng nhập")]')
+                )
             )
-        )
-        sign_btn.click()
+            sign_btn.click()
+        except:
+            pass # Bỏ qua nếu form điền email hiện ra trực tiếp
 
+        # 2. Ô nhập Email (Sử dụng Selector linh hoạt cho Microsoft)
         email_box = wait.until(
-            EC.presence_of_element_located((By.ID, "usernameEntry"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="email"], input[name="loginfmt"]'))
         )
         email_box.send_keys(email)
         email_box.send_keys(Keys.RETURN)
 
         time.sleep(3)
 
-        try:
-            use_pass = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable(
-                    (By.XPATH, '//span[contains(text(),"Use your password")]')
-                )
-            )
-            use_pass.click()
-        except:
-            pass
-
+        # 3. Ô nhập Password
         pass_box = wait.until(
-            EC.presence_of_element_located((By.ID, "passwordEntry"))
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="password"], input[name="passwd"]'))
         )
         pass_box.send_keys(password)
         pass_box.send_keys(Keys.RETURN)
 
+        # 4. Xử lý nút "Stay signed in?" (Chọn No để không lưu đăng nhập)
         try:
-            no_btn = WebDriverWait(driver, 15).until(
-                EC.element_to_be_clickable(
-                    (By.CSS_SELECTOR, 'button[data-testid="secondaryButton"]')
-                )
+            no_btn = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.ID, "declineButton"))
             )
             no_btn.click()
         except:
-            pass
+            try:
+                no_btn_2 = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.ID, "idBtn_Back"))
+                )
+                no_btn_2.click()
+            except:
+                pass
 
         print("✅ Login success")
-
-        time.sleep(12)
+        
+        # Chờ giao diện Teams load hẳn
+        time.sleep(15) 
 
         return driver
 
@@ -172,7 +176,6 @@ def login():
         print("❌ Login failed:", e)
         driver.quit()
         return None
-
 
 # =========================
 # CREATE SHEET
