@@ -260,9 +260,8 @@ def get_messages(driver, worksheet):
 
                 content = item.find_element(
                     By.CSS_SELECTOR,
-                    '[id^="content-"]'
-                ).text.strip()
-
+                    '[id^="content-"][aria-label]'
+                ).get_attribute("aria-label").strip()
                 data.append(
                     [name, date_str, time_str, content]
                 )
