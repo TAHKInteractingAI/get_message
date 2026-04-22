@@ -160,20 +160,19 @@ def login():
         pass_box.send_keys(password)
         pass_box.send_keys(Keys.RETURN)
 
-        # 4. Xử lý nút "Stay signed in?" (Chọn No để không lưu đăng nhập)
+       # 4. Xử lý nút "Stay signed in?" (Chọn No để không lưu đăng nhập)
         try:
-            no_btn = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.ID, "declineButton"))
+            print("⏳ Đang xử lý màn hình Stay signed in...")
+            no_btn = WebDriverWait(driver, 15).until(
+                EC.element_to_be_clickable(
+                    (By.XPATH, '//*[@id="declineButton"] | //*[@id="idBtn_Back"] | //*[@value="No"] | //button[contains(., "No")]')
+                )
             )
             no_btn.click()
+            time.sleep(3)
         except:
-            try:
-                no_btn_2 = WebDriverWait(driver, 5).until(
-                    EC.element_to_be_clickable((By.ID, "idBtn_Back"))
-                )
-                no_btn_2.click()
-            except:
-                pass
+            print("⚠️ Không thấy màn hình Stay signed in, tiếp tục...")
+            pass
 
         print("✅ Login success")
         
