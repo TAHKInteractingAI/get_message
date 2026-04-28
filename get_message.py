@@ -196,12 +196,15 @@ def create_worksheet(title):
     names = [x.title for x in sheet.worksheets()]
 
     if title in names:
-        return
+        # Nếu sheet đã có, chúng ta lấy sheet đó để định dạng lại cho chắc chắn
+        ws = sheet.worksheet(title)
+    else:
+        # Nếu chưa có thì mới tạo mới và thêm header
+        ws = sheet.add_worksheet(title=title, rows=1000, cols=4)
+        ws.update("A1:D1", [["NAME", "DATE", "TIME", "CONTENT"]])
+        ws.freeze(rows=1)
 
-    ws = sheet.add_worksheet(title=title, rows=1000, cols=4)
-
-    ws.update("A1:D1", [["NAME", "DATE", "TIME", "CONTENT"]])
-
+    # ĐƯA PHẦN NÀY RA NGOÀI ĐỂ LUÔN THỰC THI:
     set_column_widths(
         ws,
         [
@@ -212,10 +215,10 @@ def create_worksheet(title):
         ],
     )
 
-    ws.freeze(rows=1)
-    # THÊM 2 DÒNG NÀY VÀO DƯỚI CÙNG:
+    # Ép kiểu xuống dòng (Wrap text) cho toàn bộ cột D
     fmt = cellFormat(wrapStrategy='WRAP')
     format_cell_range(ws, 'D:D', fmt)
+    print(f"✅ Đã cập nhật định dạng cho sheet: {title}")
 
 # =========================
 # SAVE DATA
@@ -272,10 +275,10 @@ def get_messages(driver, worksheet):
                 date_str = dt_local.strftime("%Y-%m-%d")
                 time_str = dt_local.strftime("%H:%M:%S")
 
-                content = item.find_element(
-                    By.CSS_SELECTOR,
-                    '[id^="content-"]'
-                ).text.strip()
+                # Lấy element trước
+                content_el = item.find_element(By.CSS_SELECTOR, '[id^="content-"]')
+                # Dùng innerText để giữ nguyên các ký tự xuống dòng (\n)
+                content = content_el.get_attribute("innerText").strip()
                 data.append(
                     [name, date_str, time_str, content]
                 )
