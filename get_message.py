@@ -282,16 +282,16 @@ def get_messages(driver, worksheet):
                     '[id^="content-"]'
                 )
                 
-                # 1. Lấy mã HTML gốc của đoạn tin nhắn
                 raw_html = content_el.get_attribute("innerHTML")
                 
+                # 1. MỚI: Xóa các thẻ inline (mention, span, link) TRƯỚC để tránh bị cắt vụn chữ
+                text = re.sub(r'</?(span|at|a|strong|b|i|em)[^>]*>', '', raw_html, flags=re.IGNORECASE)
+                
                 # 2. Chủ động thay thế các thẻ ngắt dòng phổ biến thành ký tự \n
-                # Xử lý thẻ <br>, <br/>, <br />
-                text = re.sub(r'<br\s*/?>', '\n', raw_html, flags=re.IGNORECASE)
-                # Xử lý thẻ đóng </div>, </p> 
+                text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
                 text = re.sub(r'</(div|p)>', '\n', text, flags=re.IGNORECASE)
                 
-                # 3. Xóa sạch mọi thẻ HTML còn sót lại (như <a>, <span>, <strong>...)
+                # 3. Xóa sạch mọi thẻ HTML còn sót lại
                 text = re.sub(r'<[^>]+>', '', text)
                 
                 # 4. Dịch các ký tự đặc biệt của web (như &nbsp; thành dấu cách)
@@ -301,7 +301,6 @@ def get_messages(driver, worksheet):
                 lines = [line.strip() for line in text.split('\n')]
                 content = '\n'.join([line for line in lines if line])
                 # ------------------------------------
-
                 data.append(
                     [name, date_str, time_str, content]
                 )
