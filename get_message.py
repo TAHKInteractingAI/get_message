@@ -11,7 +11,8 @@ import pytz
 import gspread
 import tempfile
 import undetected_chromedriver as uc
-
+import re
+import html
 from datetime import datetime, timezone
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -275,14 +276,35 @@ def get_messages(driver, worksheet):
                 date_str = dt_local.strftime("%Y-%m-%d")
                 time_str = dt_local.strftime("%H:%M:%S")
 
-                # Lấy element trước
-                content_el = item.find_element(By.CSS_SELECTOR, '[id^="content-"]')
-                # Dùng innerText để giữ nguyên các ký tự xuống dòng (\n)
-                content = content_el.get_attribute("innerText").strip()
+                # --- CÁCH XỬ LÝ TẬN GỐC BẰNG HTML ---
+                content_el = item.find_element(
+                    By.CSS_SELECTOR,
+                    '[id^="content-"]'
+                )
+                
+                # 1. Lấy mã HTML gốc của đoạn tin nhắn
+                raw_html = content_el.get_attribute("innerHTML")
+                
+                # 2. Chủ động thay thế các thẻ ngắt dòng phổ biến thành ký tự \n
+                # Xử lý thẻ <br>, <br/>, <br />
+                text = re.sub(r'<br\s*/?>', '\n', raw_html, flags=re.IGNORECASE)
+                # Xử lý thẻ đóng </div>, </p> 
+                text = re.sub(r'</(div|p)>', '\n', text, flags=re.IGNORECASE)
+                
+                # 3. Xóa sạch mọi thẻ HTML còn sót lại (như <a>, <span>, <strong>...)
+                text = re.sub(r'<[^>]+>', '', text)
+                
+                # 4. Dịch các ký tự đặc biệt của web (như &nbsp; thành dấu cách)
+                text = html.unescape(text)
+                
+                # 5. Dọn dẹp khoảng trắng thừa và nối lại thành đoạn văn hoàn chỉnh
+                lines = [line.strip() for line in text.split('\n')]
+                content = '\n'.join([line for line in lines if line])
+                # ------------------------------------
+
                 data.append(
                     [name, date_str, time_str, content]
                 )
-
             except:
                 continue
 
