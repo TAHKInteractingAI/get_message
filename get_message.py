@@ -83,26 +83,7 @@ def get_driver():
     if proxy_url:
         options.add_argument(f"--proxy-server={proxy_url}")
 
-    driver = uc.Chrome(options=options, version_main=146)
-
-    driver.execute_cdp_cmd(
-        "Page.addScriptToEvaluateOnNewDocument",
-        {"source": """
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined
-                });
-
-                window.navigator.chrome = { runtime: {} };
-
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1,2,3,4,5]
-                });
-
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-GB','en-US','en']
-                });
-            """},
-    )
+    driver = uc.Chrome(options=options)
 
     return driver
 
