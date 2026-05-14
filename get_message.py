@@ -87,8 +87,7 @@ def get_driver():
 
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
-        {
-            "source": """
+        {"source": """
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 });
@@ -102,8 +101,7 @@ def get_driver():
                 Object.defineProperty(navigator, 'languages', {
                     get: () => ['en-GB','en-US','en']
                 });
-            """
-        },
+            """},
     )
 
     return driver
@@ -126,16 +124,21 @@ def login():
         try:
             sign_btn = WebDriverWait(driver, 10).until(
                 EC.element_to_be_clickable(
-                    (By.XPATH, '//button[contains(., "Sign in")] | //a[contains(., "Sign in")] | //button[contains(., "Đăng nhập")]')
+                    (
+                        By.XPATH,
+                        '//button[contains(., "Sign in")] | //a[contains(., "Sign in")] | //button[contains(., "Đăng nhập")]',
+                    )
                 )
             )
             sign_btn.click()
         except:
-            pass # Bỏ qua nếu form điền email hiện ra trực tiếp
+            pass  # Bỏ qua nếu form điền email hiện ra trực tiếp
 
         # 2. Ô nhập Email (Sử dụng Selector linh hoạt cho Microsoft)
         email_box = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="email"], input[name="loginfmt"]'))
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, 'input[type="email"], input[name="loginfmt"]')
+            )
         )
         email_box.send_keys(email)
         email_box.send_keys(Keys.RETURN)
@@ -146,27 +149,35 @@ def login():
         try:
             use_pass_btn = WebDriverWait(driver, 5).until(
                 EC.element_to_be_clickable(
-                    (By.XPATH, '//*[contains(text(), "Use your password") or contains(text(), "Sử dụng mật khẩu")]')
+                    (
+                        By.XPATH,
+                        '//*[contains(text(), "Use your password") or contains(text(), "Sử dụng mật khẩu")]',
+                    )
                 )
             )
             use_pass_btn.click()
             time.sleep(2)
         except:
-            pass # Nếu màn hình đi thẳng tới ô mật khẩu thì cứ bỏ qua bước này
+            pass  # Nếu màn hình đi thẳng tới ô mật khẩu thì cứ bỏ qua bước này
         # ===============================
         # 3. Ô nhập Password
         pass_box = wait.until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, 'input[type="password"], input[name="passwd"]'))
+            EC.presence_of_element_located(
+                (By.CSS_SELECTOR, 'input[type="password"], input[name="passwd"]')
+            )
         )
         pass_box.send_keys(password)
         pass_box.send_keys(Keys.RETURN)
 
-       # 4. Xử lý nút "Stay signed in?" (Chọn No để không lưu đăng nhập)
+        # 4. Xử lý nút "Stay signed in?" (Chọn No để không lưu đăng nhập)
         try:
             print("⏳ Đang xử lý màn hình Stay signed in...")
             no_btn = WebDriverWait(driver, 15).until(
                 EC.element_to_be_clickable(
-                    (By.XPATH, '//*[@id="declineButton"] | //*[@id="idBtn_Back"] | //*[@value="No"] | //button[contains(., "No")]')
+                    (
+                        By.XPATH,
+                        '//*[@id="declineButton"] | //*[@id="idBtn_Back"] | //*[@value="No"] | //button[contains(., "No")]',
+                    )
                 )
             )
             no_btn.click()
@@ -176,9 +187,9 @@ def login():
             pass
 
         print("✅ Login success")
-        
+
         # Chờ giao diện Teams load hẳn
-        time.sleep(15) 
+        time.sleep(15)
 
         return driver
 
@@ -187,6 +198,8 @@ def login():
         print("❌ Login failed:", e)
         driver.quit()
         return None
+
+
 # =========================
 # CREATE SHEET
 # =========================
@@ -217,9 +230,10 @@ def create_worksheet(title):
     )
 
     # Ép kiểu xuống dòng (Wrap text) cho toàn bộ cột D
-    fmt = cellFormat(wrapStrategy='WRAP')
-    format_cell_range(ws, 'D:D', fmt)
+    fmt = cellFormat(wrapStrategy="WRAP")
+    format_cell_range(ws, "D:D", fmt)
     print(f"✅ Đã cập nhật định dạng cho sheet: {title}")
+
 
 # =========================
 # SAVE DATA
@@ -247,29 +261,23 @@ def get_messages(driver, worksheet):
             )
         )
 
-        items = pane.find_elements(
-            By.CSS_SELECTOR,
-            '[data-tid="chat-pane-item"]'
-        )
+        items = pane.find_elements(By.CSS_SELECTOR, '[data-tid="chat-pane-item"]')
 
         data = []
 
         for item in items:
             try:
                 name = item.find_element(
-                    By.CSS_SELECTOR,
-                    '[data-tid="message-author-name"]'
+                    By.CSS_SELECTOR, '[data-tid="message-author-name"]'
                 ).text
 
-                timestamp = item.find_element(
-                    By.TAG_NAME,
-                    "time"
-                ).get_attribute("datetime")
+                timestamp = item.find_element(By.TAG_NAME, "time").get_attribute(
+                    "datetime"
+                )
 
-                dt_utc = datetime.strptime(
-                    timestamp,
-                    "%Y-%m-%dT%H:%M:%S.%fZ"
-                ).replace(tzinfo=timezone.utc)
+                dt_utc = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
+                    tzinfo=timezone.utc
+                )
 
                 dt_local = dt_utc.astimezone(local_tz)
 
@@ -277,33 +285,33 @@ def get_messages(driver, worksheet):
                 time_str = dt_local.strftime("%H:%M:%S")
 
                 # --- CÁCH XỬ LÝ TẬN GỐC BẰNG HTML ---
-                content_el = item.find_element(
-                    By.CSS_SELECTOR,
-                    '[id^="content-"]'
-                )
-                
+                content_el = item.find_element(By.CSS_SELECTOR, '[id^="content-"]')
+
                 raw_html = content_el.get_attribute("innerHTML")
-                
+
                 # 1. MỚI: Xóa các thẻ inline (mention, span, link) TRƯỚC để tránh bị cắt vụn chữ
-                text = re.sub(r'</?(span|at|a|strong|b|i|em)[^>]*>', '', raw_html, flags=re.IGNORECASE)
-                
+                text = re.sub(
+                    r"</?(span|at|a|strong|b|i|em)[^>]*>",
+                    "",
+                    raw_html,
+                    flags=re.IGNORECASE,
+                )
+
                 # 2. Chủ động thay thế các thẻ ngắt dòng phổ biến thành ký tự \n
-                text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
-                text = re.sub(r'</(div|p)>', '\n', text, flags=re.IGNORECASE)
-                
+                text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+                text = re.sub(r"</(div|p)>", "\n", text, flags=re.IGNORECASE)
+
                 # 3. Xóa sạch mọi thẻ HTML còn sót lại
-                text = re.sub(r'<[^>]+>', '', text)
-                
+                text = re.sub(r"<[^>]+>", "", text)
+
                 # 4. Dịch các ký tự đặc biệt của web (như &nbsp; thành dấu cách)
                 text = html.unescape(text)
-                
+
                 # 5. Dọn dẹp khoảng trắng thừa và nối lại thành đoạn văn hoàn chỉnh
-                lines = [line.strip() for line in text.split('\n')]
-                content = '\n'.join([line for line in lines if line])
+                lines = [line.strip() for line in text.split("\n")]
+                content = "\n".join([line for line in lines if line])
                 # ------------------------------------
-                data.append(
-                    [name, date_str, time_str, content]
-                )
+                data.append([name, date_str, time_str, content])
             except:
                 continue
 
@@ -318,36 +326,50 @@ def get_messages(driver, worksheet):
 # =========================
 def open_chat_by_search(driver, chat_name):
     wait = WebDriverWait(driver, 20)
+    chat_item_xpath = '//*[contains(@data-tid, "chat-list") or contains(@data-tid, "chat-item") or @role="treeitem" or @role="listitem"]'
 
     try:
+        # 1. Chờ danh sách tải xong bằng XPath mới
+        wait.until(EC.presence_of_element_located((By.XPATH, chat_item_xpath)))
+        groups = driver.find_elements(By.XPATH, chat_item_xpath)
+
+        for g in groups:
+            txt = g.text.strip().split("\n")[0]
+            if not txt:
+                txt = g.get_attribute("aria-label")
+
+            # 3. SO SÁNH TUYỆT ĐỐI
+            if txt == chat_name:
+                driver.execute_script(
+                    "arguments[0].scrollIntoView({block: 'center'});", g
+                )
+                time.sleep(1)
+                g.click()
+                time.sleep(5)
+                print(f"📂 Đã mở đúng nhóm: {chat_name}")
+                return True
+
+        print(f"⚠️ Không thấy {chat_name} ở ngoài, thử dùng thanh Search...")
         search_xpath = (
             '//input[@placeholder="Search"]'
             ' | //input[@aria-label="Search"]'
             ' | //input[@id="ms-searchux-input"]'
         )
 
-        search = wait.until(
-            EC.presence_of_element_located(
-                (By.XPATH, search_xpath)
-            )
-        )
-
+        search = wait.until(EC.presence_of_element_located((By.XPATH, search_xpath)))
         search.click()
         search.send_keys(Keys.CONTROL + "a")
         search.send_keys(Keys.BACKSPACE)
         search.send_keys(chat_name)
 
-        time.sleep(3)
-
-        ActionChains(driver)\
-            .send_keys(Keys.ARROW_DOWN)\
-            .pause(1)\
-            .send_keys(Keys.ENTER)\
-            .perform()
+        time.sleep(4)
+        dropdown_result = driver.find_element(
+            By.XPATH, f"//*[contains(text(), '{chat_name}')]"
+        )
+        dropdown_result.click()
 
         time.sleep(5)
-
-        print(f"📂 Opened: {chat_name}")
+        print(f"📂 Opened via search: {chat_name}")
         return True
 
     except Exception as e:
@@ -361,24 +383,28 @@ def open_chat_by_search(driver, chat_name):
 def get_all_groups(driver):
     wait = WebDriverWait(driver, 20)
 
-    try:
-        wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, '[data-tid="chat-list-item"]')
-            )
-        )
+    # Selector bao quát để đối phó với việc Teams thay đổi DOM
+    chat_item_xpath = '//*[contains(@data-tid, "chat-list") or contains(@data-tid, "chat-item") or @role="treeitem" or @role="listitem"]'
 
-        groups = driver.find_elements(
-            By.CSS_SELECTOR,
-            '[data-tid="chat-list-item"]'
-        )
+    try:
+        wait.until(EC.presence_of_element_located((By.XPATH, chat_item_xpath)))
+        groups = driver.find_elements(By.XPATH, chat_item_xpath)
 
         names = []
-
         for g in groups:
             try:
+                # Ưu tiên lấy text hiển thị, nếu rỗng thì lấy qua thuộc tính ẩn
                 txt = g.text.strip().split("\n")[0]
-                if txt and txt not in names:
+                if not txt:
+                    txt = g.get_attribute("aria-label")
+
+                # Lọc bỏ rác và tên trùng
+                if (
+                    txt
+                    and txt not in names
+                    and "Chat" not in txt
+                    and "Unread" not in txt
+                ):
                     names.append(txt)
             except:
                 pass
