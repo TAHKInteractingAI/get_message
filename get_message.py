@@ -61,7 +61,7 @@ def save_screenshot(driver, file_name="error.png"):
         driver.save_screenshot(file_name)
         print(f"📸 Saved: {file_name}")
     except:
-        pass
+        print(f"❌ Failed to save screenshot: {e}")
 
 
 # =========================
