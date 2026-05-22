@@ -95,7 +95,7 @@ def get_driver():
     if proxy_url:
         options.add_argument(f"--proxy-server={proxy_url}")
 
-    driver = uc.Chrome(options=options)
+    driver = uc.Chrome(options=options, version_main=148)
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
         {
