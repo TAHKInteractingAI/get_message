@@ -69,12 +69,24 @@ def save_screenshot(driver, file_name="error.png"):
 # =========================
 def get_driver():
     options = uc.ChromeOptions()
-
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    )
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
+    
+        # Cho phép tất cả Cookie (Teams cực kỳ cần cái này để không bị văng)
+    prefs = {"profile.cookie_controls_mode": 0,
+             "credentials_enable_service": False,      # Tắt popup hỏi lưu pass
+             "profile.password_manager_enabled": False # Tắt trình quản lý mật khẩu
+             } 
+    
+    options.add_experimental_option("prefs", prefs)
 
     options.page_load_strategy = "eager"
     options.add_argument("--lang=en-GB")
@@ -84,6 +96,18 @@ def get_driver():
         options.add_argument(f"--proxy-server={proxy_url}")
 
     driver = uc.Chrome(options=options)
+    driver.execute_cdp_cmd(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+            "source": """
+                Object.defineProperty(navigator, 'credentials', {
+                    get: () => undefined
+                });
+
+                window.PublicKeyCredential = undefined;
+            """
+        }
+    )
 
     return driver
 
