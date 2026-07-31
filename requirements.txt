@@ -1,7 +1,8 @@
-gspread
-oauth2client
-selenium
-webdriver-manager
-pytz
-gspread-formatting
 undetected-chromedriver
+gspread
+google-auth-oauthlib
+google-auth-httplib2
+gspread-formatting
+python-dotenv
+pytz
+dateutils
