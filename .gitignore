@@ -208,9 +208,4 @@ __marimo__/
 
 #custom
 *.pkl
-
-credentials.json
-# Dòng này nên được xóa hoặc comment lại để có thể xem ảnh lỗi trên Render
-# *.png 
-# gcp-credentials.json
-# *credentials.json
+*.png

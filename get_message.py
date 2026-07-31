@@ -320,7 +320,7 @@ def get_gspread_client(credentials_path="gcp-credentials.json"):
         or os.getenv("GCP_CREDENTIALS_JSON")
         or os.getenv("GOOGLE_CREDENTIALS")
     )
-    if env_json:
+    if env_json and env_json.strip().startswith("{"):
         try:
             info = json.loads(env_json)
             creds = Credentials.from_service_account_info(info, scopes=SCOPES)
@@ -328,8 +328,8 @@ def get_gspread_client(credentials_path="gcp-credentials.json"):
         except Exception as e:
             print(f"⚠️ Lỗi đọc credentials từ biến môi trường: {e}")
 
-    # 2. Thử tìm file JSON trên ổ đĩa
-    possible_paths = [
+    # 2. Đọc từ file JSON trên ổ đĩa (thử nhiều đường dẫn)
+    possible_paths = [ # Thêm các đường dẫn tương đối để linh hoạt hơn
         credentials_path,
         credentials_path + ".json",
         "gcp-credentials.json",
@@ -346,12 +346,14 @@ def get_gspread_client(credentials_path="gcp-credentials.json"):
         creds = Credentials.from_service_account_file(target_path, scopes=SCOPES)
         return gspread.authorize(creds)
 
+    # 3. Thử dùng default credentials (hữu ích trên môi trường Google Cloud)
     try:
         creds, _ = default()
         return gspread.authorize(creds)
     except Exception as e:
         raise FileNotFoundError(
-            f"Không tìm thấy file '{credentials_path}' hoặc biến môi trường 'GCP_CREDENTIALS_JSON'."
+            "Không thể khởi tạo kết nối Google Sheets API. "
+            "Vui lòng cấu hình biến GCP_SA_KEY / GCP_CREDENTIALS_JSON trong file .env hoặc thêm file 'gcp-credentials.json' vào thư mục."
         ) from e
 
 
