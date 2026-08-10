@@ -1,0 +1,59 @@
+name: Run Microsoft Teams Message Collector Cronjob
+
+on:
+  schedule:
+    # Cấu hình lịch chạy theo cú pháp Cron (Múi giờ UTC).
+    # Ví dụ: Chạy lúc 00:00 UTC (tức 07:00 sáng giờ Việt Nam) hàng ngày.
+    # Bạn có thể thay đổi lịch tùy nhu cầu (ví dụ: '*/30 * * * *' cho 30 phút/lần).
+    - cron: '*/10 * * * *'
+
+  # Cho phép kích hoạt chạy thủ công qua nút "Run workflow" trên giao diện GitHub
+  workflow_dispatch:
+
+jobs:
+  run-teams-collector:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Tải toàn bộ mã nguồn trong Repository về máy ảo Ubuntu
+      - name: Checkout repository code
+        uses: actions/checkout@v4
+
+      # 2. Cài đặt môi trường Python 3.10
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      # 3. Cài đặt Trình duyệt Google Chrome chính thức trên máy ảo Ubuntu
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo apt-get install -y ./google-chrome-stable_current_amd64.deb
+          google-chrome --version
+
+      # 4. Cài đặt các thư viện Python từ requirements.txt
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; else pip install undetected-chromedriver selenium gspread gspread-formatting google-auth python-dotenv pytz; fi
+
+      # 5. Thực thi script Python chính
+      - name: Execute Python script
+        env:
+          TEAMS_EMAIL: ${{ secrets.TEAMS_EMAIL }}
+          TEAMS_PASSWORD: ${{ secrets.TEAMS_PASSWORD }}
+          GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
+          PROXY_URL: ${{ secrets.PROXY_URL }}
+        run: |
+          python get_message.py
+
+      # 6. (Tùy chọn) Lưu ảnh màn hình (screenshot) nếu xảy ra lỗi để kiểm tra/debug
+      - name: Upload error screenshots on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-screenshots
+          path: '*.png'
+          retention-days: 7
