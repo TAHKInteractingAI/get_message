@@ -70,12 +70,14 @@ def save_screenshot(driver, file_name="error.png"):
 
         
 # =========================
-# Kiểm tra version Chrome
+# Kiểm tra version & binary Browser
 # =========================       
-def get_installed_chrome_major_version():
-    """Tự động kiểm tra Major Version của Chrome trên máy"""
-
+def get_browser_binary_and_version():
+    """Tự động kiểm tra đường dẫn binary và Major Version của trình duyệt."""
     system = platform.system()
+    binary_path = None
+    major_version = None
+
     try:
         if system == "Windows":
             import winreg
@@ -85,24 +87,42 @@ def get_installed_chrome_major_version():
             except FileNotFoundError:
                 key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Google\Chrome\BLBeacon")
             version, _ = winreg.QueryValueEx(key, "version")
-            return int(version.split('.')[0])
+            major_version = int(version.split('.')[0])
 
         elif system == "Linux":
-            output = subprocess.check_output(["google-chrome", "--version"]).decode("utf-8")
-            match = re.search(r"Google Chrome (\d+)\.", output)
-            if match:
-                return int(match.group(1))
+            for cmd_name in ["google-chrome", "brave-browser", "chromium"]:
+                try:
+                    output = subprocess.check_output([cmd_name, "--version"]).decode("utf-8")
+                    match = re.search(r"(\d+)\.", output)
+                    if match:
+                        major_version = int(match.group(1))
+                        break
+                except Exception:
+                    pass
 
         elif system == "Darwin":  # macOS
-            cmd = r"/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version"
-            output = subprocess.check_output(cmd, shell=True).decode("utf-8")
-            match = re.search(r"Google Chrome (\d+)\.", output)
-            if match:
-                return int(match.group(1))
+            candidates = [
+                ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", r"Google Chrome (\d+)\."),
+                ("/Applications/Brave Browser.app/Contents/MacOS/Brave Browser", r"Brave Browser (\d+)\."),
+                ("/Applications/Chromium.app/Contents/MacOS/Chromium", r"Chromium (\d+)\."),
+                ("/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge", r"Microsoft Edge (\d+)\.")
+            ]
+            for path, regex in candidates:
+                if os.path.exists(path):
+                    binary_path = path
+                    try:
+                        output = subprocess.check_output([path, "--version"]).decode("utf-8")
+                        match = re.search(regex, output)
+                        if match:
+                            major_version = int(match.group(1))
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Không lấy được version của {path}: {e}")
+
     except Exception as e:
-        print(f"⚠️ Không thể tự động phát hiện phiên bản Chrome: {e}")
+        print(f"⚠️ Không thể tự động phát hiện phiên bản trình duyệt: {e}")
     
-    return None
+    return binary_path, major_version
 
 
 # =========================
@@ -138,25 +158,22 @@ def get_driver():
     proxy_url = os.getenv("PROXY_URL")
     if proxy_url:
         options.add_argument(f"--proxy-server={proxy_url}")
-    chrome_version = None
-    try:
-        # Lệnh này sẽ chạy thành công trên máy chủ Ubuntu của GitHub Actions
-        # Lấy output (ví dụ: "Google Chrome 147.0.7727.55")
-        result = subprocess.check_output(["google-chrome", "--version"]).decode("utf-8")
-        # Dùng Regex để tách lấy con số đầu tiên (147)
-        chrome_version = int(re.search(r"\d+", result).group(0))
-        print(
-            f"✅ Đã tự động nhận diện Chrome trên máy chủ là version: {chrome_version}"
-        )
-    except Exception:
-        # Nếu chạy thủ công trên Windows ở máy tính cá nhân nó sẽ nhảy vào đây
-        chrome_version = get_installed_chrome_major_version()
 
-    # Khởi tạo Driver với đúng phiên bản máy chủ đang có
+    binary_path, chrome_version = get_browser_binary_and_version()
+    if binary_path:
+        print(f"🌐 Sử dụng trình duyệt: {binary_path}")
+        options.binary_location = binary_path
+
     if chrome_version:
-        driver = uc.Chrome(options=options, version_main=chrome_version)
-    else:
-        driver = uc.Chrome(options=options)
+        print(f"✅ Đã nhận diện phiên bản trình duyệt: {chrome_version}")
+
+    kwargs = {"options": options}
+    if chrome_version:
+        kwargs["version_main"] = chrome_version
+    if binary_path:
+        kwargs["browser_executable_path"] = binary_path
+
+    driver = uc.Chrome(**kwargs)
     
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
@@ -574,13 +591,34 @@ def open_chat_by_search(driver, chat_name):
 # =========================
 # GET ALL GROUPS
 # =========================
+def dismiss_teams_popups(driver):
+    """Tự động đóng các banner và popup làm phiền sau đăng nhập."""
+    try:
+        # 1. Đóng banner Turn on notifications
+        close_banner_btns = driver.find_elements(
+            By.XPATH,
+            '//button[contains(@aria-label, "Dismiss") or contains(@aria-label, "Đóng") or contains(@aria-label, "Close")]'
+        )
+        for btn in close_banner_btns:
+            try:
+                if btn.is_displayed():
+                    driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(1)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def get_all_groups(driver):
 
-    wait = WebDriverWait(driver, 20)
+    wait = WebDriverWait(driver, 25)
+
+    dismiss_teams_popups(driver)
 
     # mở tab Chat
     try:
-        chat_btn = wait.until(
+        chat_btn = WebDriverWait(driver, 8).until(
             EC.element_to_be_clickable(
                 (
                     By.XPATH,
@@ -592,29 +630,37 @@ def get_all_groups(driver):
         )
 
         driver.execute_script("arguments[0].click()", chat_btn)
-
+        time.sleep(2)
     except Exception as e:
-        print(f"⚠️ Không thể click nút Chat, có thể đã ở trong tab Chat rồi. Lỗi: {e}")
+        print(f"ℹ️ Tab Chat có thể đã được chọn sẵn. ({e})")
         pass
 
+    # Bộ selector đa năng cho danh sách chat (tương thích cả Teams Classic lẫn Teams 2.1 Mới)
+    chat_item_xpath = (
+        '//*[contains(@data-tid, "chat-list-item") '
+        'or contains(@data-tid, "chat-item") '
+        'or @data-item-type="chat" '
+        'or @role="listitem" '
+        'or @role="treeitem"]'
+    )
+
     try:
-        wait.until(
-            EC.presence_of_element_located(
-                (By.CSS_SELECTOR, '[data-item-type="chat"]')
-            )
-        )
+        # Chờ danh sách nhóm xuất hiện (tối đa 25 giây)
+        wait.until(EC.presence_of_element_located((By.XPATH, chat_item_xpath)))
     except Exception as e:
         print("❌ Lỗi timeout khi chờ danh sách chat tải. Đang chụp ảnh màn hình...")
         save_screenshot(driver, "get_all_groups_error.png")
         raise e # Ném lại lỗi để chương trình dừng lại như cũ
 
-    chat_items = driver.find_elements(By.CSS_SELECTOR, '[data-item-type="chat"]')
+    chat_items = driver.find_elements(By.XPATH, chat_item_xpath)
 
     groups = []
 
     for item in chat_items:
 
         try:
+            if not item.is_displayed():
+                continue
 
             lines = [
                 x.strip()
@@ -625,14 +671,18 @@ def get_all_groups(driver):
             if not lines:
                 continue
 
-            # bỏ chữ Unread
-            if lines[0] == "Unread":
+            # Bỏ nhãn Unread hoặc các nhãn hệ thống
+            if lines[0] in ["Unread", "Chưa đọc"]:
                 lines.pop(0)
 
             if not lines:
                 continue
 
             name = lines[0]
+
+            # Bỏ qua các tiêu đề phân mục như 'Favorites', 'Chats', 'Pinned'
+            if name in ["Favorites", "Chats", "Pinned", "Yêu thích", "Trò chuyện"]:
+                continue
 
             if name not in groups:
                 groups.append(name)

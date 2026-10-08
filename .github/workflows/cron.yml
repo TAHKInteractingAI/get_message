@@ -44,7 +44,9 @@ jobs:
         env:
           TEAMS_EMAIL: ${{ secrets.TEAMS_EMAIL }}
           TEAMS_PASSWORD: ${{ secrets.TEAMS_PASSWORD }}
-          GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON }}
+          GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON || secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS_JSON }}
+          GCP_SA_KEY: ${{ secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS_JSON }}
           PROXY_URL: ${{ secrets.PROXY_URL }}
         run: |
           python get_message.py
