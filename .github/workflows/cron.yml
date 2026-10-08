@@ -1,11 +1,10 @@
 name: Run Microsoft Teams Message Collector Cronjob
 
 on:
-  schedule:
-    # Cấu hình lịch chạy theo cú pháp Cron (Múi giờ UTC).
-    # Ví dụ: Chạy lúc 00:00 UTC (tức 07:00 sáng giờ Việt Nam) hàng ngày.
-    # Bạn có thể thay đổi lịch tùy nhu cầu (ví dụ: '*/30 * * * *' cho 30 phút/lần).
-    - cron: '*/10 * * * *'
+  # Tắt lịch chạy tự động 10 phút/lần để tránh bị Microsoft khóa tài khoản (Rate Limit "Try again later")
+  # Job này sẽ được kích hoạt an toàn qua Webhook cron-job.org hoặc workflow_dispatch
+  # schedule:
+  #   - cron: '*/10 * * * *'
 
   # Cho phép kích hoạt chạy thủ công qua nút "Run workflow" trên giao diện GitHub
   workflow_dispatch:

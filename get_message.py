@@ -90,12 +90,16 @@ def get_browser_binary_and_version():
             major_version = int(version.split('.')[0])
 
         elif system == "Linux":
-            for cmd_name in ["google-chrome", "brave-browser", "chromium"]:
+            for cmd_name in ["google-chrome", "google-chrome-stable", "chromium", "brave-browser"]:
                 try:
                     output = subprocess.check_output([cmd_name, "--version"]).decode("utf-8")
-                    match = re.search(r"(\d+)\.", output)
+                    # Ưu tiên bắt chính xác số đứng sau tên trình duyệt
+                    match = re.search(r"(?:Google Chrome|Chromium|Brave Browser)\s+(\d+)\.", output, re.IGNORECASE)
+                    if not match:
+                        match = re.search(r"\b(\d{2,3})\.\d+", output)
                     if match:
                         major_version = int(match.group(1))
+                        print(f"🔍 Nhận diện {cmd_name}: {output.strip()} -> major: {major_version}")
                         break
                 except Exception:
                     pass
@@ -304,11 +308,44 @@ def login():
             print("⚠️ Không thấy màn hình Stay signed in, tiếp tục...")
             pass
 
-        print("✅ Đăng nhập thành công")
+        # 5. KIỂM TRA MÀN HÌNH "TRY AGAIN LATER" DO BỊ MICROSOFT RATE LIMIT
+        time.sleep(3)
+        page_source = driver.page_source.lower()
+        if "try again later" in page_source or "we can't sign you in right now" in page_source:
+            save_screenshot(driver, "try_again_later_blocked.png")
+            raise Exception("❌ Microsoft tạm khóa đăng nhập (Try again later) do tần suất đăng nhập từ IP này quá nhiều. Vui lòng thử lại sau!")
 
-        # Chờ giao diện Teams load hẳn
-        time.sleep(15)
+        # 6. Chờ giao diện Teams load hẳn (Thoát khỏi màn hình Splash Screen tím)
+        print("⏳ Đang chờ giao diện Teams nạp xong (tối đa 45s)...")
+        start_wait = time.time()
+        while time.time() - start_wait < 45:
+            current_url = driver.current_url
+            # Kiểm tra xem có popup "Use the web app instead" trên Linux không
+            try:
+                use_web_btn = driver.find_elements(
+                    By.XPATH,
+                    '//a[contains(text(), "Use the web app") or contains(text(), "Dùng ứng dụng web")] | '
+                    '//button[contains(text(), "Use the web app") or contains(text(), "Dùng ứng dụng web")]'
+                )
+                for btn in use_web_btn:
+                    if btn.is_displayed():
+                        driver.execute_script("arguments[0].click();", btn)
+                        print("👉 Đã bấm nút 'Use the web app instead'")
+                        time.sleep(2)
+            except Exception:
+                pass
 
+            # Kiểm tra nếu đã xuất hiện các nút bấm của giao diện chính Teams
+            nav_items = driver.find_elements(
+                By.XPATH,
+                '//button | //div[@role="button"] | //div[@role="tab"] | //div[@role="listitem"]'
+            )
+            if len(nav_items) > 5 and "login.microsoftonline.com" not in current_url:
+                print(f"✅ Đăng nhập Teams thành công sau {int(time.time() - start_wait)} giây!")
+                return driver
+            time.sleep(3)
+
+        print("⚠️ Hết thời gian chờ Splash Screen, tiếp tục tiến trình...")
         return driver
 
     except Exception as e:
