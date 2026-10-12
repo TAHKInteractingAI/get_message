@@ -5,11 +5,43 @@ on:
     types: [run-teams-bot]
   workflow_dispatch:
 
+env:
+  TZ: Asia/Ho_Chi_Minh
+
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check CI call time (Asia/Ho_Chi_Minh)
+        run: |
+          sudo timedatectl set-timezone Asia/Ho_Chi_Minh || true
+          TRIGGER_HCM=$(TZ=Asia/Ho_Chi_Minh date '+%Y-%m-%d %H:%M:%S')
+          TRIGGER_UTC=$(TZ=UTC date '+%Y-%m-%d %H:%M:%S')
+          HOUR_HCM=$(TZ=Asia/Ho_Chi_Minh date '+%-H')
+          echo "CI_TRIGGER_TIME=${TRIGGER_HCM}" >> $GITHUB_ENV
+          echo "========================================================"
+          echo "⏰ KIỂM TRA GIỜ CI ĐƯỢC GỌI (Asia/Ho_Chi_Minh - UTC+7)"
+          echo " - Event kích hoạt : ${{ github.event_name }}"
+          echo " - Giờ UTC         : ${TRIGGER_UTC} UTC"
+          echo " - Giờ Hồ Chí Minh : ${TRIGGER_HCM} (+07)"
+          if [ "$HOUR_HCM" -lt 8 ]; then
+            SHIFT="Ca 02:00 AM (Lấy từ 18:00 hôm qua -> 02:00 sáng nay)"
+          elif [ "$HOUR_HCM" -lt 16 ]; then
+            SHIFT="Ca 01:00 PM / 13:00 (Lấy từ 02:00 sáng nay -> 13:00 chiều nay)"
+          else
+            SHIFT="Ca 06:00 PM / 18:00 (Lấy từ 13:00 chiều nay -> 18:00 tối nay)"
+          fi
+          echo " - Ca nhận diện    : ${SHIFT}"
+          echo "========================================================"
+          {
+            echo "### ⏰ Thông tin giờ gọi CI (Asia/Ho_Chi_Minh)"
+            echo "- **Sự kiện kích hoạt:** \`${{ github.event_name }}\`"
+            echo "- **Giờ Hồ Chí Minh (UTC+7):** \`${TRIGGER_HCM}\`"
+            echo "- **Giờ chuẩn UTC:** \`${TRIGGER_UTC}\`"
+            echo "- **Ca chạy:** ${SHIFT}"
+          } >> $GITHUB_STEP_SUMMARY
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -30,6 +62,8 @@ jobs:
 
       - name: Run the main script
         env:
+          TZ: Asia/Ho_Chi_Minh
+          CI_TRIGGER_TIME: ${{ env.CI_TRIGGER_TIME }}
           GCP_SA_KEY: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON || secrets.GOOGLE_CREDENTIALS }}
