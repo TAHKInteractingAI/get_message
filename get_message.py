@@ -13,7 +13,7 @@ import tempfile
 import undetected_chromedriver as uc
 import re
 import html
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, time as dt_time
 from google.auth import default
 from google.oauth2.service_account import Credentials
 
@@ -50,6 +50,10 @@ _patch_uc_del()
 # =========================
 # CONFIG
 # =========================
+os.environ["TZ"] = "Asia/Ho_Chi_Minh"
+if hasattr(time, "tzset"):
+    time.tzset()
+
 local_tz = pytz.timezone("Asia/Ho_Chi_Minh")
 
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1_m7s-1-I-SOFfzlWe7CBf5fstFir7qXYAKW4j-8hKYM/edit?usp=sharing"
@@ -178,6 +182,14 @@ def get_driver():
         kwargs["browser_executable_path"] = binary_path
 
     driver = uc.Chrome(**kwargs)
+
+    try:
+        driver.execute_cdp_cmd(
+            "Emulation.setTimezoneOverride",
+            {"timezoneId": "Asia/Ho_Chi_Minh"},
+        )
+    except Exception:
+        pass
     
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
@@ -447,6 +459,15 @@ def create_worksheet(title, gc=None):
     print(f"✅ Đã cập nhật định dạng cho sheet: {title}")
 
 
+def _normalize_row_key(name, date_str, time_str, content):
+    """Chuẩn hóa khóa nhận diện tin nhắn để chống trùng lặp chính xác (kể cả khi Google Sheets bỏ số 0 ở đầu giờ)."""
+    norm_name = str(name).strip()
+    norm_date = str(date_str).strip()
+    norm_time = str(time_str).strip().lstrip("0") or "0"
+    norm_content = str(content).strip().lstrip("'")
+    return (norm_name, norm_date, norm_time, norm_content)
+
+
 # =========================
 # SAVE DATA
 # =========================
@@ -456,15 +477,119 @@ def save_to_excel(rows, worksheet, gc=None):
     sheet = gc.open_by_url(SPREADSHEET_URL)
     ws = sheet.worksheet(worksheet)
 
-    if rows:
-        ws.append_rows(rows, value_input_option="USER_ENTERED")
-        print(f"✅ Đã thêm {len(rows)} dòng vào sheet: {worksheet}")
+    if not rows:
+        print(f"ℹ️ Không có tin nhắn nào trong khung giờ cho sheet: {worksheet}")
+        return
+
+    # Kiểm tra dữ liệu đã có trên sheet để tránh ghi trùng lặp
+    existing_values = ws.get_all_values()
+    existing_set = set()
+    for r in existing_values[1:]:  # Bỏ qua dòng tiêu đề
+        if len(r) >= 4:
+            existing_set.add(_normalize_row_key(r[0], r[1], r[2], r[3]))
+
+    new_rows = []
+    for r in rows:
+        key = _normalize_row_key(r[0], r[1], r[2], r[3])
+        if key not in existing_set:
+            existing_set.add(key)
+            new_rows.append(r)
+
+    if new_rows:
+        ws.append_rows(new_rows, value_input_option="USER_ENTERED")
+        print(
+            f"✅ Đã thêm {len(new_rows)} dòng mới vào sheet: {worksheet} "
+            f"(bỏ qua {len(rows) - len(new_rows)} dòng trùng)"
+        )
+    else:
+        print(f"ℹ️ Tất cả {len(rows)} tin nhắn trong khung giờ đã có sẵn ở sheet: {worksheet}")
+
+
+# =========================
+# TIME WINDOW (3 CA CRONJOB: 02:00, 13:00, 18:00 - GIỜ HỒ CHÍ MINH)
+# =========================
+def get_hcm_now():
+    """Luôn lấy giờ hiện tại chuẩn theo múi giờ Asia/Ho_Chi_Minh (UTC+7), bất kể giờ hệ thống của máy chủ CI."""
+    return datetime.now(timezone.utc).astimezone(local_tz)
+
+
+def get_time_window(now=None, buffer_minutes=10):
+    """
+    Xác định khung giờ lấy tin nhắn nối tiếp giữa 3 lần chạy cronjob (theo múi giờ Asia/Ho_Chi_Minh):
+    - Ca 02:00 sáng (00:00 -> trước 08:00): Lấy từ 18:00 hôm qua -> hiện tại
+    - Ca 13:00 chiều (08:00 -> trước 16:00): Lấy từ 02:00 sáng nay -> hiện tại
+    - Ca 18:00 tối (16:00 -> 23:59): Lấy từ 13:00 chiều nay -> hiện tại
+    Có trừ lùi `buffer_minutes` (mặc định 10 phút) ở mốc bắt đầu để tránh sót tin nhắn lúc giao ca
+    khi CI khởi động trễ vài phút (đã có bộ lọc chống trùng khi ghi vào Sheet).
+    """
+    if now is None:
+        now = get_hcm_now()
+    elif now.tzinfo is None:
+        now = local_tz.localize(now)
+    else:
+        now = now.astimezone(local_tz)
+
+    # Nếu CI truyền thời điểm kích hoạt (CI_TRIGGER_TIME), dùng giờ kích hoạt để xác định đúng ca
+    ref_time = now
+    ci_trigger_str = os.getenv("CI_TRIGGER_TIME", "").strip()
+    if ci_trigger_str:
+        try:
+            parsed_trigger = datetime.strptime(ci_trigger_str, "%Y-%m-%d %H:%M:%S")
+            ref_time = local_tz.localize(parsed_trigger)
+        except Exception:
+            ref_time = now
+
+    ref_date = ref_time.date()
+    ref_hour = ref_time.hour
+
+    if ref_hour < 8:
+        shift_name = "Ca 02:00 AM (02h sáng)"
+        yesterday = ref_date - timedelta(days=1)
+        start_naive = datetime.combine(yesterday, dt_time(18, 0, 0))
+    elif ref_hour < 16:
+        shift_name = "Ca 01:00 PM (13h chiều)"
+        start_naive = datetime.combine(ref_date, dt_time(2, 0, 0))
+    else:
+        shift_name = "Ca 06:00 PM (18h tối)"
+        start_naive = datetime.combine(ref_date, dt_time(13, 0, 0))
+
+    start_time = local_tz.localize(start_naive) - timedelta(minutes=buffer_minutes)
+    end_time = max(now, ref_time)
+    return start_time, end_time, shift_name
+
+
+def _parse_teams_timestamp(timestamp_str):
+    """
+    Chuyển chuỗi datetime từ thẻ <time> của Teams sang múi giờ local_tz (Asia/Ho_Chi_Minh).
+    Xử lý an toàn cả định dạng 7 chữ số thập phân (.1234567Z của Microsoft), không có mili-giây, hoặc có offset (+00:00).
+    """
+    if not timestamp_str:
+        return None
+    ts = timestamp_str.strip()
+    # Chuẩn hóa phần thập phân dài hơn 6 chữ số (ví dụ .1234567Z -> .123456Z)
+    ts = re.sub(r"\.(\d{6})\d+(Z|[+-]\d{2}:?\d{2})$", r".\1\2", ts)
+    try:
+        iso_ts = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
+        dt_obj = datetime.fromisoformat(iso_ts)
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=timezone.utc)
+        return dt_obj.astimezone(local_tz)
+    except Exception:
+        pass
+
+    for fmt in ("%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%dT%H:%M:%SZ"):
+        try:
+            dt_utc = datetime.strptime(ts, fmt).replace(tzinfo=timezone.utc)
+            return dt_utc.astimezone(local_tz)
+        except ValueError:
+            continue
+    return None
 
 
 # =========================
 # GET MESSAGE
 # =========================
-def get_messages(driver, worksheet, gc=None):
+def get_messages(driver, worksheet, gc=None, time_window=None, max_scrolls=15):
     try:
         wait = WebDriverWait(driver, 20)
 
@@ -474,59 +599,162 @@ def get_messages(driver, worksheet, gc=None):
             )
         )
 
-        items = pane.find_elements(By.CSS_SELECTOR, '[data-tid="chat-pane-item"]')
+        if time_window is None:
+            start_time, end_time, _ = get_time_window()
+        else:
+            start_time, end_time = time_window
 
-        data = []
+        # Lưu các tin nhắn thu thập được theo key để tránh trùng khi cuộn trang (Virtual DOM)
+        collected_messages = {}
+        prev_oldest_dt = None
+        unchanged_scrolls = 0
 
-        for item in items:
+        for scroll_idx in range(max_scrolls):
+            items = pane.find_elements(By.CSS_SELECTOR, '[data-tid="chat-pane-item"]')
+            if not items:
+                break
+
+            oldest_dt_in_batch = None
+            last_author_name = ""
+            last_dt_local = None
+
+            for item in items:
+                try:
+                    try:
+                        name = item.find_element(
+                            By.CSS_SELECTOR, '[data-tid="message-author-name"]'
+                        ).text.strip()
+                        if name:
+                            last_author_name = name
+                    except Exception:
+                        name = last_author_name
+
+                    dt_local = None
+                    try:
+                        timestamp = item.find_element(By.TAG_NAME, "time").get_attribute(
+                            "datetime"
+                        )
+                        dt_local = _parse_teams_timestamp(timestamp)
+                        if dt_local is not None:
+                            last_dt_local = dt_local
+                    except Exception:
+                        dt_local = last_dt_local
+
+                    if dt_local is None:
+                        continue
+
+                    if oldest_dt_in_batch is None or dt_local < oldest_dt_in_batch:
+                        oldest_dt_in_batch = dt_local
+
+                    # Chỉ thu thập tin nhắn nằm trong khung giờ [start_time, end_time]
+                    if not (start_time <= dt_local <= end_time):
+                        continue
+
+                    date_str = dt_local.strftime("%Y-%m-%d")
+                    time_str = dt_local.strftime("%H:%M:%S")
+
+                    # --- CÁCH XỬ LÝ TẬN GỐC BẰNG HTML ---
+                    content_el = item.find_element(By.CSS_SELECTOR, '[id^="content-"]')
+                    raw_html = content_el.get_attribute("innerHTML")
+
+                    # 1. Xóa các thẻ inline (mention, span, link) TRƯỚC để tránh bị cắt vụn chữ
+                    text = re.sub(
+                        r"</?(span|at|a|strong|b|i|em)[^>]*>",
+                        "",
+                        raw_html,
+                        flags=re.IGNORECASE,
+                    )
+
+                    # 2. Chủ động thay thế các thẻ ngắt dòng phổ biến thành ký tự \n
+                    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+                    text = re.sub(r"</(div|p)>", "\n", text, flags=re.IGNORECASE)
+
+                    # 3. Xóa sạch mọi thẻ HTML còn sót lại
+                    text = re.sub(r"<[^>]+>", "", text)
+
+                    # 4. Dịch các ký tự đặc biệt của web (như &nbsp; thành dấu cách)
+                    text = html.unescape(text)
+
+                    # 5. Dọn dẹp khoảng trắng thừa và nối lại thành đoạn văn hoàn chỉnh
+                    lines = [line.strip() for line in text.split("\n")]
+                    content = "\n".join([line for line in lines if line])
+                    # ------------------------------------
+
+                    if not content:
+                        continue
+
+                    msg_key = _normalize_row_key(name, date_str, time_str, content)
+                    if msg_key not in collected_messages:
+                        collected_messages[msg_key] = (
+                            dt_local,
+                            [name, date_str, time_str, content],
+                        )
+                except Exception:
+                    continue
+
+            # Kiểm tra điều kiện dừng cuộn
+            if oldest_dt_in_batch is None:
+                break
+
+            if oldest_dt_in_batch <= start_time:
+                # Đã chạm tới các tin nhắn cũ hơn mốc bắt đầu của khung giờ
+                break
+
+            if prev_oldest_dt is not None and oldest_dt_in_batch >= prev_oldest_dt:
+                unchanged_scrolls += 1
+                if unchanged_scrolls >= 2:
+                    # Đã cuộn tới đỉnh lịch sử chat, không còn tin nhắn cũ hơn để tải
+                    break
+            else:
+                unchanged_scrolls = 0
+
+            prev_oldest_dt = oldest_dt_in_batch
+
+            # Cuộn lên đầu danh sách để Teams nạp thêm tin nhắn cũ hơn (kết hợp JS scroll + phím PageUp cho Virtual List)
+            print(
+                f"🔄 Đang cuộn lên tải thêm tin nhắn cũ (mốc cũ nhất hiện tại: "
+                f"{oldest_dt_in_batch.strftime('%Y-%m-%d %H:%M:%S')})..."
+            )
             try:
-                name = item.find_element(
-                    By.CSS_SELECTOR, '[data-tid="message-author-name"]'
-                ).text
-
-                timestamp = item.find_element(By.TAG_NAME, "time").get_attribute(
-                    "datetime"
+                first_item = items[0]
+                driver.execute_script(
+                    """
+                    const firstItem = arguments[0];
+                    firstItem.scrollIntoView({block: 'start'});
+                    const viewport = document.querySelector('[data-tid="message-pane-list-viewport"]');
+                    if (viewport) {
+                        viewport.scrollTop = 0;
+                        viewport.dispatchEvent(new Event('scroll', { bubbles: true }));
+                    }
+                    let parent = firstItem.parentElement;
+                    while (parent) {
+                        if (parent.scrollHeight > parent.clientHeight) {
+                            parent.scrollTop = 0;
+                            parent.dispatchEvent(new Event('scroll', { bubbles: true }));
+                        }
+                        parent = parent.parentElement;
+                    }
+                    """,
+                    first_item,
                 )
+                try:
+                    ActionChains(driver).move_to_element(first_item).click().send_keys(
+                        Keys.PAGE_UP
+                    ).perform()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            time.sleep(2.5)
 
-                dt_utc = datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S.%fZ").replace(
-                    tzinfo=timezone.utc
-                )
+        # Sắp xếp tin nhắn theo thứ tự thời gian từ cũ đến mới
+        sorted_items = sorted(collected_messages.values(), key=lambda x: x[0])
+        data = [row for _, row in sorted_items]
 
-                dt_local = dt_utc.astimezone(local_tz)
-
-                date_str = dt_local.strftime("%Y-%m-%d")
-                time_str = dt_local.strftime("%H:%M:%S")
-
-                # --- CÁCH XỬ LÝ TẬN GỐC BẰNG HTML ---
-                content_el = item.find_element(By.CSS_SELECTOR, '[id^="content-"]')
-
-                raw_html = content_el.get_attribute("innerHTML")
-
-                # 1. MỚI: Xóa các thẻ inline (mention, span, link) TRƯỚC để tránh bị cắt vụn chữ
-                text = re.sub(
-                    r"</?(span|at|a|strong|b|i|em)[^>]*>",
-                    "",
-                    raw_html,
-                    flags=re.IGNORECASE,
-                )
-
-                # 2. Chủ động thay thế các thẻ ngắt dòng phổ biến thành ký tự \n
-                text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-                text = re.sub(r"</(div|p)>", "\n", text, flags=re.IGNORECASE)
-
-                # 3. Xóa sạch mọi thẻ HTML còn sót lại
-                text = re.sub(r"<[^>]+>", "", text)
-
-                # 4. Dịch các ký tự đặc biệt của web (như &nbsp; thành dấu cách)
-                text = html.unescape(text)
-
-                # 5. Dọn dẹp khoảng trắng thừa và nối lại thành đoạn văn hoàn chỉnh
-                lines = [line.strip() for line in text.split("\n")]
-                content = "\n".join([line for line in lines if line])
-                # ------------------------------------
-                data.append([name, date_str, time_str, content])
-            except:
-                continue
+        print(
+            f"📊 Nhóm '{worksheet}': Lọc được {len(data)} tin nhắn trong khung giờ "
+            f"[{start_time.strftime('%Y-%m-%d %H:%M:%S')} -> {end_time.strftime('%Y-%m-%d %H:%M:%S')}]"
+        )
 
         save_to_excel(data, worksheet, gc=gc)
 
@@ -738,6 +966,25 @@ def get_all_groups(driver):
 # MAIN
 # =========================
 if __name__ == "__main__":
+    utc_now = datetime.now(timezone.utc)
+    hcm_now = get_hcm_now()
+    start_time, end_time, shift_name = get_time_window(hcm_now)
+    ci_trigger_env = os.getenv("CI_TRIGGER_TIME", "N/A (Chạy trực tiếp)")
+    ci_event_name = os.getenv("GITHUB_EVENT_NAME", "local_run")
+
+    print("=" * 65)
+    print("⏰ KIỂM TRA THỜI GIAN & CA CHẠY (MÚI GIỜ HỒ CHÍ MINH - UTC+7)")
+    print(f" - Sự kiện kích hoạt (CI Event) : {ci_event_name}")
+    print(f" - Giờ CI nhận lệnh (HCM)       : {ci_trigger_env}")
+    print(f" - Giờ máy chủ hiện tại (UTC)   : {utc_now.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    print(f" - Giờ Việt Nam hiện tại (HCM)  : {hcm_now.strftime('%Y-%m-%d %H:%M:%S %Z%z')}")
+    print(f" - Ca chạy được nhận diện       : {shift_name}")
+    print(
+        f" - Khung giờ lấy tin nhắn       : "
+        f"{start_time.strftime('%Y-%m-%d %H:%M:%S')} -> {end_time.strftime('%Y-%m-%d %H:%M:%S')} (Asia/Ho_Chi_Minh)"
+    )
+    print("=" * 65)
+
     gc_client = None
     try:
         gc_client = get_gspread_client()
@@ -763,7 +1010,8 @@ if __name__ == "__main__":
 
                     if open_chat_by_search(driver, group):
                         if gc_client:
-                            get_messages(driver, group, gc=gc_client)
+                            current_window = (start_time, get_hcm_now())
+                            get_messages(driver, group, gc=gc_client, time_window=current_window)
 
                     time.sleep(3)
 
