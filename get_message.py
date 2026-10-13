@@ -138,30 +138,27 @@ def get_browser_binary_and_version():
 # =========================
 def get_driver():
     options = uc.ChromeOptions()
+    options.add_argument("--headless=new")
     options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/120.0.0.0 Safari/537.36"
     )
-    options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # --- THÊM DÒNG NÀY ĐỂ TẮT PASSKEY ---
-    options.add_argument("--disable-features=WebAuthentication,WebAuthenticationUI")
-    
+    options.page_load_strategy = "eager"
+    options.add_argument("--lang=en-GB")
+
     # Cho phép tất cả Cookie (Teams cực kỳ cần cái này để không bị văng)
     prefs = {
         "profile.cookie_controls_mode": 0,
         "credentials_enable_service": False,      # Tắt popup hỏi lưu pass
         "profile.password_manager_enabled": False # Tắt trình quản lý mật khẩu
-    } 
-    
-    options.add_experimental_option("prefs", prefs)
+    }
 
-    options.page_load_strategy = "eager"
-    options.add_argument("--lang=en-GB")
+    options.add_experimental_option("prefs", prefs)
 
     proxy_url = os.getenv("PROXY_URL")
     if proxy_url:
@@ -195,6 +192,10 @@ def get_driver():
         "Page.addScriptToEvaluateOnNewDocument",
         {
             "source": """
+                Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                window.navigator.chrome = { runtime: {} };
+                Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+                Object.defineProperty(navigator, 'languages', { get: () => ['en-GB', 'en-US', 'en'] });
                 Object.defineProperty(navigator, 'credentials', {
                     get: () => undefined
                 });
@@ -241,6 +242,7 @@ def login():
             )
         )
         email_box.send_keys(email)
+        time.sleep(1)
         email_box.send_keys(Keys.RETURN)
 
         time.sleep(3)
@@ -301,7 +303,9 @@ def login():
             )
         )
         pass_box.send_keys(password)
+        time.sleep(1)
         pass_box.send_keys(Keys.RETURN)
+        time.sleep(3)
 
         # 4. Xử lý nút "Stay signed in?" (Chọn No để không lưu đăng nhập)
         try:
@@ -310,7 +314,9 @@ def login():
                 EC.element_to_be_clickable(
                     (
                         By.XPATH,
-                        '//*[@id="declineButton"] | //*[@id="idBtn_Back"] | //*[@value="No"] | //button[contains(., "No")]',
+                        '//*[@id="declineButton"] | //*[@id="idBtn_Back"] | //*[@value="No"] '
+                        '| //button[@data-testid="secondaryButton"] '
+                        '| //button[normalize-space(.)="No" or normalize-space(.)="Không"]',
                     )
                 )
             )
@@ -320,18 +326,25 @@ def login():
             print("⚠️ Không thấy màn hình Stay signed in, tiếp tục...")
             pass
 
-        # 5. KIỂM TRA MÀN HÌNH "TRY AGAIN LATER" DO BỊ MICROSOFT RATE LIMIT
-        time.sleep(3)
-        page_source = driver.page_source.lower()
-        if "try again later" in page_source or "we can't sign you in right now" in page_source:
-            save_screenshot(driver, "try_again_later_blocked.png")
-            raise Exception("❌ Microsoft tạm khóa đăng nhập (Try again later) do tần suất đăng nhập từ IP này quá nhiều. Vui lòng thử lại sau!")
-
-        # 6. Chờ giao diện Teams load hẳn (Thoát khỏi màn hình Splash Screen tím)
+        # 5. Chờ giao diện Teams load hẳn (Thoát khỏi màn hình đăng nhập & Splash Screen)
         print("⏳ Đang chờ giao diện Teams nạp xong (tối đa 45s)...")
         start_wait = time.time()
         while time.time() - start_wait < 45:
-            current_url = driver.current_url
+            current_url = (driver.current_url or "").lower()
+
+            # Kiểm tra nếu bị Microsoft chặn "Try again later"
+            try:
+                body_text = driver.find_element(By.TAG_NAME, "body").text.lower()
+                if "try again later" in body_text or "can't sign you in right now" in body_text:
+                    save_screenshot(driver, "try_again_later_blocked.png")
+                    raise RuntimeError(
+                        "Microsoft tạm khóa phiên đăng nhập (Try again later / We can't sign you in right now)."
+                    )
+            except RuntimeError:
+                raise
+            except Exception:
+                pass
+
             # Kiểm tra xem có popup "Use the web app instead" trên Linux không
             try:
                 use_web_btn = driver.find_elements(
@@ -347,17 +360,27 @@ def login():
             except Exception:
                 pass
 
+            is_login_domain = any(
+                d in current_url
+                for d in ("login.microsoftonline.com", "login.live.com", "account.live.com")
+            )
             # Kiểm tra nếu đã xuất hiện các nút bấm của giao diện chính Teams
             nav_items = driver.find_elements(
                 By.XPATH,
-                '//button | //div[@role="button"] | //div[@role="tab"] | //div[@role="listitem"]'
+                '//button | //div[@role="button"] | //div[@role="tab"] | //div[@role="listitem"] | //*[@role="treeitem"]'
             )
-            if len(nav_items) > 5 and "login.microsoftonline.com" not in current_url:
+            if len(nav_items) > 5 and not is_login_domain:
                 print(f"✅ Đăng nhập Teams thành công sau {int(time.time() - start_wait)} giây!")
                 return driver
             time.sleep(3)
 
-        print("⚠️ Hết thời gian chờ Splash Screen, tiếp tục tiến trình...")
+        current_url = (driver.current_url or "").lower()
+        if any(d in current_url for d in ("login.microsoftonline.com", "login.live.com", "account.live.com")):
+            save_screenshot(driver, "login_stuck_on_auth.png")
+            raise RuntimeError(f"Vẫn kẹt ở trang xác thực Microsoft sau 45s (URL: {driver.current_url})")
+
+        print("⚠️ Hết thời gian chờ Splash Screen, chờ thêm 10s để giao diện ổn định...")
+        time.sleep(10)
         return driver
 
     except Exception as e:
@@ -999,33 +1022,51 @@ if __name__ == "__main__":
         print(f"⚠️ Cảnh báo kết nối Google Sheets: {e}")
         print("💡 Lưu ý: Cần thêm file 'gcp-credentials.json' vào thư mục dự án để ghi dữ liệu lên Google Sheets.")
 
-    driver = login()
-
-    if driver:
-        try:
-            group_names = get_all_groups(driver)
-
-            for group in group_names:
-                try:
-                    print(f"\n===== {group} =====")
-
-                    if gc_client:
-                        create_worksheet(group, gc=gc_client)
-                    else:
-                        print(f"⚠️ Bỏ qua ghi Google Sheet cho '{group}' vì chưa có file gcp-credentials.json.")
-
-                    if open_chat_by_search(driver, group):
-                        if gc_client:
-                            current_window = (start_time, get_hcm_now())
-                            get_messages(driver, group, gc=gc_client, time_window=current_window)
-
-                    time.sleep(3)
-
-                except Exception as e:
-                    print(f"⚠️ Bỏ qua nhóm {group} do lỗi:", e)
-        finally:
+    driver = None
+    group_names = []
+    for attempt_login in range(5):
+        driver = login()
+        if driver:
             try:
-                driver.quit()
-            except Exception:
-                pass
-            print("✅ ĐÃ HOÀN THÀNH")
+                group_names = get_all_groups(driver)
+                print("✅ Đăng nhập và tải danh sách nhóm Teams thành công!")
+                break
+            except Exception as e:
+                print(f"⚠️ Đăng nhập xong nhưng chưa tải được danh sách nhóm (lần {attempt_login + 1}/5): {e}")
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
+                driver = None
+        print(f"⚠️ Thử đăng nhập lại lần {attempt_login + 1}/5 sau 5 giây...")
+        time.sleep(5)
+
+    if not driver:
+        print("❌ Đăng nhập Teams không thành công sau 5 lần thử!")
+        exit(1)
+
+    try:
+        for group in group_names:
+            try:
+                print(f"\n===== {group} =====")
+
+                if gc_client:
+                    create_worksheet(group, gc=gc_client)
+                else:
+                    print(f"⚠️ Bỏ qua ghi Google Sheet cho '{group}' vì chưa có file gcp-credentials.json.")
+
+                if open_chat_by_search(driver, group):
+                    if gc_client:
+                        current_window = (start_time, get_hcm_now())
+                        get_messages(driver, group, gc=gc_client, time_window=current_window)
+
+                time.sleep(3)
+
+            except Exception as e:
+                print(f"⚠️ Bỏ qua nhóm {group} do lỗi:", e)
+    finally:
+        try:
+            driver.quit()
+        except Exception:
+            pass
+        print("✅ ĐÃ HOÀN THÀNH")
