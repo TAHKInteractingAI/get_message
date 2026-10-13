@@ -659,24 +659,30 @@ def get_messages(driver, worksheet, gc=None, time_window=None, max_scrolls=15):
 
                     # 1. Xóa các thẻ inline (mention, span, link) TRƯỚC để tránh bị cắt vụn chữ
                     text = re.sub(
-                        r"</?(span|at|a|strong|b|i|em)[^>]*>",
+                        r"</?(span|at|a|strong|b|i|em|u|s|code|font)[^>]*>",
                         "",
                         raw_html,
                         flags=re.IGNORECASE,
                     )
 
-                    # 2. Chủ động thay thế các thẻ ngắt dòng phổ biến thành ký tự \n
+                    # 2. Chủ động thay thế cả thẻ mở & thẻ đóng dạng block và <br> thành ký tự \n
+                    #    (Tránh lỗi dòng đầu là bare text nối trực tiếp vào <div>dòng 2</div> làm dính chữ)
                     text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
-                    text = re.sub(r"</(div|p)>", "\n", text, flags=re.IGNORECASE)
+                    text = re.sub(
+                        r"</?(div|p|li|ul|ol|tr|table|blockquote|section|article|h[1-6])[^>]*>",
+                        "\n",
+                        text,
+                        flags=re.IGNORECASE,
+                    )
 
                     # 3. Xóa sạch mọi thẻ HTML còn sót lại
                     text = re.sub(r"<[^>]+>", "", text)
 
                     # 4. Dịch các ký tự đặc biệt của web (như &nbsp; thành dấu cách)
-                    text = html.unescape(text)
+                    text = html.unescape(text).replace("\xa0", " ")
 
                     # 5. Dọn dẹp khoảng trắng thừa và nối lại thành đoạn văn hoàn chỉnh
-                    lines = [line.strip() for line in text.split("\n")]
+                    lines = [line.strip() for line in text.splitlines()]
                     content = "\n".join([line for line in lines if line])
                     # ------------------------------------
 
