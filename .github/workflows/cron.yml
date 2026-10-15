@@ -51,11 +51,11 @@ jobs:
       - name: Checkout repository code
         uses: actions/checkout@v4
 
-      # 2. Cài đặt môi trường Python 3.10
+      # 2. Cài đặt môi trường Python 3.12
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: '3.12'
 
       # 3. Cài đặt Trình duyệt Google Chrome chính thức trên máy ảo Ubuntu
       - name: Install Google Chrome
