@@ -83,6 +83,8 @@ jobs:
           GCP_SA_KEY: ${{ secrets.GOOGLE_CREDENTIALS || secrets.GCP_CREDENTIALS_JSON }}
           PROXY_URL: ${{ secrets.PROXY_URL }}
         run: |
+          # Chờ ngẫu nhiên 5-25s để tránh nghẽn tải đúng đầu giờ tại Microsoft / Azure
+          sleep $((RANDOM % 20 + 5))
           python get_message.py
 
       # 6. (Tùy chọn) Lưu ảnh màn hình (screenshot) nếu xảy ra lỗi để kiểm tra/debug

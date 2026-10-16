@@ -22,11 +22,12 @@ from .sheets import _normalize_row_key, save_to_excel
 # LOGIN TEAMS
 # =========================
 def login():
-    driver = get_driver()
-    driver.get("https://teams.microsoft.com/")
-    wait = WebDriverWait(driver, 30)
-
+    driver = None
     try:
+        driver = get_driver()
+        driver.get("https://teams.microsoft.com/")
+        wait = WebDriverWait(driver, 30)
+
         print("⏳ Đang đăng nhập...")
 
         # 1. Xử lý nút Sign in (nếu bị đẩy ra trang chờ)
@@ -131,10 +132,11 @@ def login():
         except Exception:
             print("⚠️ Không thấy màn hình Stay signed in, tiếp tục...")
 
-        # 5. Chờ giao diện Teams load hẳn (tối đa 45s)
-        print("⏳ Đang chờ giao diện Teams nạp xong (tối đa 45s)...")
+        # 5. Chờ giao diện Teams load hẳn (tối đa 75s)
+        print("⏳ Đang chờ giao diện Teams nạp xong (tối đa 75s)...")
         start_wait = time.time()
-        while time.time() - start_wait < 45:
+        max_wait = 75
+        while time.time() - start_wait < max_wait:
             current_url = (driver.current_url or "").lower()
 
             try:
@@ -145,7 +147,7 @@ def login():
                 ):
                     save_screenshot(driver, "try_again_later_blocked.png")
                     raise RuntimeError(
-                        "Microsoft tạm khóa phiên đăng nhập (Try again later / We can't sign you in right now)."
+                        f"Microsoft tạm khóa phiên đăng nhập (Try again later / We can't sign you in right now) tại URL: {driver.current_url}"
                     )
             except RuntimeError:
                 raise
@@ -186,6 +188,8 @@ def login():
             time.sleep(3)
 
         current_url = (driver.current_url or "").lower()
+        print(f"⚠️ Hết thời gian chờ {max_wait}s. URL hiện tại: {driver.current_url}")
+
         if any(
             d in current_url
             for d in (
@@ -196,22 +200,33 @@ def login():
         ):
             save_screenshot(driver, "login_stuck_on_auth.png")
             raise RuntimeError(
-                f"Vẫn kẹt ở trang xác thực Microsoft sau 45s (URL: {driver.current_url})"
+                f"Vẫn kẹt ở trang xác thực Microsoft sau {max_wait}s (URL: {driver.current_url})"
             )
 
-        print(
-            "⚠️ Hết thời gian chờ Splash Screen, chờ thêm 10s để giao diện ổn định..."
+        nav_items = driver.find_elements(
+            By.XPATH,
+            '//button | //div[@role="button"] | //div[@role="tab"] | //div[@role="listitem"] | //*[@role="treeitem"]',
         )
-        time.sleep(10)
+        if len(nav_items) <= 5:
+            save_screenshot(driver, "login_ui_not_ready.png")
+            raise RuntimeError(
+                f"Giao diện Teams chưa tải xong sau {max_wait}s (chỉ có {len(nav_items)} controls, URL: {driver.current_url})"
+            )
+
+        print("✅ Giao diện Teams đã tải xong (sau thời gian chờ tối đa).")
         return driver
 
     except Exception as e:
-        save_screenshot(driver, "login_error.png")
         print("❌ Đăng nhập thất bại:", e)
-        try:
-            driver.quit()
-        except Exception:
-            pass
+        if driver:
+            try:
+                save_screenshot(driver, "login_error.png")
+            except Exception:
+                pass
+            try:
+                driver.quit()
+            except Exception:
+                pass
         return None
 
 
