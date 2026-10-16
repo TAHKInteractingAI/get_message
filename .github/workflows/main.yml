@@ -69,7 +69,10 @@ jobs:
           GCP_CREDENTIALS_JSON: ${{ secrets.GCP_CREDENTIALS_JSON || secrets.GOOGLE_CREDENTIALS }}
           TEAMS_EMAIL: ${{ secrets.TEAMS_EMAIL }}
           TEAMS_PASSWORD: ${{ secrets.TEAMS_PASSWORD }}
-        run: python get_message.py
+        run: |
+          # Chờ ngẫu nhiên 5-25s để tránh nghẽn tải đúng đầu giờ tại Microsoft / Azure
+          sleep $((RANDOM % 20 + 5))
+          python get_message.py
       - name: Upload Screenshot on Failure
         if: always()
         uses: actions/upload-artifact@v4
