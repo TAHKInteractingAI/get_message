@@ -22,6 +22,10 @@ from .sheets import _normalize_row_key, save_to_excel
 # LOGIN TEAMS
 # =========================
 def login():
+    if not email or not password:
+        print("❌ Lỗi cấu hình: Biến môi trường TEAMS_EMAIL hoặc TEAMS_PASSWORD chưa được thiết lập!")
+        return None
+
     driver = None
     try:
         driver = get_driver()
